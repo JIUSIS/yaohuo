@@ -186,7 +186,7 @@
 								})
 							}
 						}
-						let replyCountMatch = res.data.match(/更多回帖\((.*?)\)/)
+						let replyCountMatch = res.data.match(/全部回帖\((.*?)\)/)
 						this.info.replyCount = replyCountMatch ? replyCountMatch[1] : 0
 						this.totalPage = Math.ceil(this.info.replyCount / 15)
 						let classIdMatch = res.data.match(/&classid=(.*?)"/)
@@ -251,88 +251,87 @@
 				replyObj.text = ''
 				first = first.next
 				while (first) {
-					if (first.next && !first.next.next) { // 昵称
-						let firstChild = first.children[0]
-						replyObj.user = ''
-						while (firstChild) {
-							if (firstChild.type && firstChild.type === 'text') {
-								if (firstChild.data !== ' ') {
-									replyObj.user += firstChild.data
+					if (first.type && first.type === 'tag' && first.name === 'span') {
+						if (first.attribs.class == 'renick') {
+							replyObj.user = ''
+							first.children[0].children.forEach(username => {
+								if (username.type == 'tag' && username.name == 'font') {
+									replyObj.user += username.children[0].data
 								}
-							}
-							if (firstChild.type && first.type === 'tag' && firstChild.name == 'font') {
-								replyObj.user += firstChild.children[0].data
-							}
-							firstChild = firstChild.next
+								if (username.type == 'text') {
+									replyObj.user += username.data
+								}
+							})
 						}
-					}
-					if (!first.next) { // 时间
-						replyObj.time = first.data.trim()
-					}
-					if (first.type && first.type === 'tag' && first.name === 'b') {
-						replyObj.text += `[<b>${first.children[0].data}</b>]`
-					}
-					if (first.type && first.type === 'text' && first.data.indexOf(']') === 0) {
-						replyObj.text += first.data.replace(']', '')
-						first = first.next
-						while (first) {
-							if (first.type === 'tag' && first.name === 'video') {
-								replyObj.text +=
-									`<video src="${first.attribs.src}" poster="${first.attribs.poster}"></video>`
-							}
-							if (first.type && first.type === 'text' && first.data !== '][') {
-								replyObj.text += first.data
-							}
-							if (first.type && first.type === 'tag' && first.name === 'br') {
-								replyObj.text += '<br>'
-							}
-							if (first.type && first.name === 'img') {
-								if (first.attribs.src.indexOf('face/') > -1) {
-									replyObj.text += `<img src="${first.attribs.src}">`
-								} else {
-									replyObj.text += `<img style="max-width:80%" src="${first.attribs.src}">`
-								}
-
-							}
-							if (first.name === 'a' && first.attribs.href.indexOf('book_re_addfileshow') > -1) {
-								console.log(first);
-								uni.request({
-									url: `https://yaohuo.me${first.attribs.href}`,
-									header: {
-										cookie: uni.getStorageSync('cookie')
-									},
-									success: (res) => {
-										let imgUrl = res.data.match(/img src=\"(.*?)\"/)
-										if (imgUrl) {
-											replyObj.text +=
-												`<img style="max-width:80%" src="https://yaohuo.me${imgUrl[1]}">`
+						if (first.attribs.class == 'retime') { // 时间
+							replyObj.time = first.children[0].data
+						}
+						if (first.attribs.class == 'reother') {
+							replyObj.text += `[<b>${first.children[0].data}</b>]`
+						}
+						if (first.attribs.class == 'retext') {
+							replyObj.text += ''
+							first.children.forEach(ContentBox => {
+								if (ContentBox.type === 'tag') {
+									if (ContentBox.name === 'video') {
+										replyObj.text +=
+											`<video src="${ContentBox.attribs.src}" poster="${ContentBox.attribs.poster}"></video>`
+									}
+									if (ContentBox.name === 'br') {
+										replyObj.text += '<br>'
+									}
+									if (ContentBox.name === 'img') {
+										if (ContentBox.attribs.src.indexOf('face/') > -1) {
+											replyObj.text += `<img src="${ContentBox.attribs.src}">`
 										} else {
-											let fileUrl = res.data.match(/\"(\/bbs\/download.*?)\"/)
-											if (fileUrl) {
-												replyObj.text +=
-													`<a href="https://yaohuo.me${fileUrl[1]}">点击复制附件链接</a>`
-											}
+											replyObj.text +=
+												`<img style="max-width:80%" src="${ContentBox.attribs.src}">`
 										}
 									}
-								})
-							}
-							if (first.name === 'a' && first.attribs.href.indexOf('bbs-') < 0 && first.attribs.href.indexOf(
-									'bbs/Book_re.aspx') < 0 && first.attribs.href.indexOf('bbs/Book_re_del.aspx') < 0 &&
-								first.attribs.href.indexOf('book_re_addfileshow') < 0) {
-								replyObj.text += `<a href="${first.attribs.href}">${first.children[0].data}</a>`
-							}
-							if (first.name === 'a' && first.attribs.href.indexOf('bbs-') > -1) {
-								let url = first.attribs.href
-								replyObj.text += `<a href="${url}">${first.children[0].data}</a>`
-							}
-							if (first.next.name === 'a' && first.next.attribs.href.indexOf('userinfo') > -1) {
-								break
-							}
-							first = first.next
+								}
+								if (ContentBox.type === 'text') {
+									replyObj.text += ContentBox.data
+								}
+								if (ContentBox.name === 'span') {
+									replyObj.text += `${ContentBox.children[0].data}`
+								}
+								if (ContentBox.name === 'a' && ContentBox.attribs.href.indexOf(
+										'book_re_addfileshow') > -1) {
+									uni.request({
+										url: `https://yaohuo.me${ContentBox.attribs.href}`,
+										header: {
+											cookie: uni.getStorageSync('cookie')
+										},
+										success: (res) => {
+											let imgUrl = res.data.match(/img src=\"(.*?)\"/)
+											if (imgUrl) {
+												replyObj.text +=
+													`<img style="max-width:80%" src="https://yaohuo.me${imgUrl[1]}">`
+											} else {
+												let fileUrl = res.data.match(
+													/\"(\/bbs\/download.*?)\"/)
+												if (fileUrl) {
+													replyObj.text +=
+														`<a href="https://yaohuo.me${fileUrl[1]}">点击复制附件链接</a>`
+												}
+											}
+										}
+									})
+								}
+								if (ContentBox.name === 'a' && ContentBox.attribs.href.indexOf('bbs-') < 0 &&
+									ContentBox.attribs.href.indexOf(
+										'bbs/Book_re.aspx') < 0 && ContentBox.attribs.href.indexOf(
+										'bbs/Book_re_del.aspx') < 0 &&
+									ContentBox.attribs.href.indexOf('book_re_addfileshow') < 0) {
+									replyObj.text +=
+										`<a href="${ContentBox.attribs.href}">${ContentBox.children[0].data}</a>`
+								}
+								if (ContentBox.name === 'a' && ContentBox.attribs.href.indexOf('bbs-') > -1) {
+									let url = ContentBox.attribs.href
+									replyObj.text += `<a href="${url}">${ContentBox.children[0].data}</a>`
+								}
+							})
 						}
-					}
-					if (first.type && first.name === 'img') {
-						replyObj.text += `<img style="width:80%" src="${first.attribs.src}">`
 					}
 					first = first.next
 				}

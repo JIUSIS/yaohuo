@@ -31,7 +31,7 @@
 				this.loading = true
 				uni.request({
 					url: 'https://yaohuo.me/waplogin.aspx',
-					method:'POST',
+					method: 'POST',
 					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
 					},
@@ -47,7 +47,19 @@
 						remember: 1
 					},
 					success: (res) => {
-						let cookie = res.header['Set-Cookie'].match(/sidyaohuo=(.*?);/)
+						console.log(res.header)
+						var cookie = ''
+						try {
+							cookie = res.header['Set-Cookie'].match(/sidyaohuo=(.*?);/)
+						} catch (e) {
+							let matchReg = /<div class=\"tip\">([\s\S]*)<\/div><body id=\"login\"/;
+							let tip = res.data.match(matchReg)
+							console.log(tip)
+							return uni.showToast({
+								title: tip[1],
+								icon: 'error'
+							})
+						}
 						if (cookie && cookie.length) {
 							uni.setStorageSync('cookie', cookie[0])
 							uni.showToast({
@@ -56,7 +68,7 @@
 							})
 							setTimeout(() => {
 								uni.redirectTo({
-									url:'/pages/index/index'
+									url: '/pages/index/index'
 								})
 							}, 500)
 						} else {
@@ -90,15 +102,16 @@
 			color: #fff;
 			background-color: rgb(0, 122, 255);
 		}
+
 		.logo {
 			text-align: center;
 			margin: 60rpx 0;
-		
+
 			image {
 				width: 180px;
 				height: 61px;
 			}
 		}
-		
+
 	}
 </style>
