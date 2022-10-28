@@ -151,7 +151,7 @@
 			},
 			handleData(resData) {
 				const $ = cheerio.load(resData)
-				let pageMatch = $('.showpage')[0].children[0].data.match(/\d\/(\d{0,10}) 页/)
+				let pageMatch = $('.showpage')[0] ? $('.showpage')[0].children[0].data.match(/\d\/(\d{0,10}) 页/) : false;
 				this.totalPage = pageMatch ? pageMatch[1] : 1
 				let data = $('.listdata')
 				let posts = []

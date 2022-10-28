@@ -26,7 +26,11 @@
 						</view>
 						<view class="uni-comment-date">
 							<text>{{comment.time}}</text>
-							<view class="uni-comment-reply-btn" v-if="!postInfo.isEnd" @click="replyToFloor(index)">回复
+							<view class="flex">
+								<view class="uni-comment-reply-btn danger" v-if="comment.remanage" v-for="item in comment.remanage" @click="CommentOption(index, item)">删除
+								</view>
+								<view class="uni-comment-reply-btn" v-if="!postInfo.isEnd" @click="replyToFloor(index)">回复
+								</view>
 							</view>
 						</view>
 						<mp-html :content="comment.text" selectable domain="https://yaohuo.me"
@@ -79,6 +83,9 @@
 </template>
 
 <script>
+	import {
+		cheerio
+	} from '@/utils/cheerio.js'
 	import faces from '@/utils/faces.js'
 	export default {
 		name: 'comment',
@@ -198,6 +205,63 @@
 				this.isReplyFloor = true
 				this.replyTips = `回复${floor.floor}楼：`
 			},
+			CommentOption(index, item){
+				console.log(index)
+				console.log(item)
+				switch (item.option) {
+					case '删':
+						uni.showModal({
+							title: '删除操作',
+							content: `删除自己回贴扣2倍币和经验！如有附件一并删除。`,
+							confirmText: '确定删除',
+							success: (res) => {
+								if (res.confirm) {
+									let url = item.url.replace('go', 'godel')
+									uni.showLoading({
+										mask:true
+									})
+									uni.request({
+										url: 'https://yaohuo.me' + url,
+										method: 'GET',
+										header: {
+											'Content-Type': 'application/x-www-form-urlencoded',
+											cookie: uni.getStorageSync('cookie')
+										},
+										success: (res) => {
+											let $ = cheerio.load(res.data)
+											let replies = $('.tip')
+											let tip = replies[0]['children'][0]
+											if (tip.next) {
+												uni.showToast({
+													title: '删除成功',
+													icon: 'success'
+												})
+												this.$emit('fetchReply', 1)
+											} else {
+												uni.showModal({
+													title: '删除失败',
+													content: tip['data'],
+													showCancel: false
+												})
+											}
+										},
+										fail: (err) => {
+											uni.showToast({
+												title: '删除失败',
+												icon: 'error'
+											})
+										},
+										complete: () => {
+											uni.hideLoading()
+										}
+									})
+								}
+							}
+						})
+						break;
+					default:
+				}
+			},
 			goToUserArea(index) {
 				let user = this.comments[index].user
 				let id = user.match(/\((\d{0,10})\)/)
@@ -286,7 +350,7 @@
 	}
 
 	.uni-comment-body {
-		width: 100%;
+		width: calc(100% - 85rpx);
 	}
 
 	.uni-comment-top {
@@ -329,6 +393,10 @@
 		border-radius: 30upx;
 		color: #333 !important;
 		margin: 0 10upx;
+	}
+	.uni-comment-reply-btn.danger{
+		background: #ff4400;
+		color: #fff !important;
 	}
 
 	.refresh-comment-icon {

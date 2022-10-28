@@ -1,5 +1,7 @@
 <template>
 	<view v-if="!loading">
+		<uni-notice-bar @click="trigger({index:1})" scrollable showGetMore showIcon background-color="#f3f3f3" color="#ff8800" single v-if="messageCountMatch" :text="'收到' + messageCountMatch + '封飞鸽传书'"></uni-notice-bar>
+
 		<uni-transition mode-class="fade" :duration="300" :show="true">
 			<view class="logo">
 				<image src="https://yaohuo.me/tupian/yaohuo.png"></image>
@@ -117,7 +119,8 @@
 						selectedIconPath: '/static/refresh.png',
 						text: '刷新'
 					}
-				]
+				],
+				messageCountMatch: 0
 			}
 		},
 		onReachBottom() {
@@ -170,10 +173,12 @@
 					},
 					success: (res) => {
 						let messageCountMatch = res.data.match(/收到(.*?)封飞鸽传书/)
+						this.messageCountMatch = 0
 						if (messageCountMatch) {
 							uni.setNavigationBarTitle({
 								title: `妖火网（${messageCountMatch[1]}条新消息）`
 							})
+							this.messageCountMatch = messageCountMatch[1]
 						} else {
 							uni.setNavigationBarTitle({
 								title: '妖火网'

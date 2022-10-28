@@ -67,4 +67,47 @@
 	.p-10 {
 		padding: 10rpx;
 	}
+	
+	
+	.flex {
+	  display: flex;
+	}
+	
+	.flex-c {
+	  display: flex;
+	  align-items: center;
+	  justify-content: center;
+	}
+	
+	.flex-a {
+	  display: flex;
+	  align-items: center;
+	  justify-content: space-around;
+	}
+	
+	.flex-w {
+	  display: flex;
+	  flex-wrap: wrap;
+	}
+	
+	.flex-bt {
+	  display: flex;
+	  justify-content: space-between;
+	}
+	
+	.flex-start {
+	  display: flex;
+	  justify-content: flex-start;
+	}
+	
+	.flex-end {
+	  display: flex;
+	  justify-content: flex-end;
+	}
+	
+	.flex-col {
+	  display: flex;
+	  flex-direction: column;
+	}
+	
 </style>

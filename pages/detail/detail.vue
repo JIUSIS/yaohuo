@@ -245,6 +245,8 @@
 					replyObj.floor = '2'
 				} else if (replyObj.floor == '板凳') {
 					replyObj.floor = '3'
+				} else if (replyObj.floor == '顶楼') {
+					replyObj.floor = '顶楼'
 				} else {
 					replyObj.floor = replyObj.floor.replace('楼', '')
 				}
@@ -269,6 +271,18 @@
 						if (first.attribs.class == 'reother') {
 							replyObj.text += `[<b>${first.children[0].data}</b>]`
 						}
+						if (first.attribs.class == 'remanage') {
+							replyObj.remanage = [];
+							first.children.forEach(remanageBox => {
+								if (remanageBox.type === 'tag' && remanageBox.name === 'a') {
+									console.log(remanageBox)
+									replyObj.remanage.push({
+										url: remanageBox.attribs.href,
+										option: remanageBox.children[0].data
+									})
+								}
+							})
+						}
 						if (first.attribs.class == 'retext') {
 							replyObj.text += ''
 							first.children.forEach(ContentBox => {
@@ -284,51 +298,45 @@
 										if (ContentBox.attribs.src.indexOf('face/') > -1) {
 											replyObj.text += `<img src="${ContentBox.attribs.src}">`
 										} else {
-											replyObj.text +=
-												`<img style="max-width:80%" src="${ContentBox.attribs.src}">`
+											replyObj.text += (replyObj.text ? '<br />' : '') + `<img style="max-width:80%" src="${ContentBox.attribs.src}">`
+										}
+									}
+									if (ContentBox.name === 'span') {
+										replyObj.text += `${ContentBox.children[0].data}`
+									}
+									if (ContentBox.name === 'a' && ContentBox.attribs.href) {
+										if (ContentBox.attribs.href.indexOf('book_re_addfileshow') > -1) {
+											uni.request({
+												url: `https://yaohuo.me${ContentBox.attribs.href}`,
+												header: {
+													cookie: uni.getStorageSync('cookie')
+												},
+												success: (res) => {
+													let imgUrl = res.data.match(/img src=\"(.*?)\"/)
+													if (imgUrl) {
+														replyObj.text += `<img style="max-width:80%" src="https://yaohuo.me${imgUrl[1]}">`
+													} else {
+														let fileUrl = res.data.match(
+															/\"(\/bbs\/download.*?)\"/)
+														if (fileUrl) {
+															replyObj.text +=
+																`<a href="https://yaohuo.me${fileUrl[1]}">点击复制附件链接</a>`
+														}
+													}
+												}
+											})
+										}
+										if (ContentBox.attribs.href.indexOf('bbs-') < 0 && ContentBox.attribs.href.indexOf('bbs/Book_re.aspx') < 0 && ContentBox.attribs.href.indexOf('bbs/Book_re_del.aspx') < 0 && ContentBox.attribs.href.indexOf('book_re_addfileshow') < 0) {
+											replyObj.text += `<a href="${ContentBox.attribs.href}">${ContentBox.children[0].data}</a>`
+										}
+										if (ContentBox.attribs.href.indexOf('bbs-') > -1) {
+											let url = ContentBox.attribs.href
+											replyObj.text += `<a href="${url}">${ContentBox.children[0].data}</a>`
 										}
 									}
 								}
 								if (ContentBox.type === 'text') {
 									replyObj.text += ContentBox.data
-								}
-								if (ContentBox.name === 'span') {
-									replyObj.text += `${ContentBox.children[0].data}`
-								}
-								if (ContentBox.name === 'a' && ContentBox.attribs.href.indexOf(
-										'book_re_addfileshow') > -1) {
-									uni.request({
-										url: `https://yaohuo.me${ContentBox.attribs.href}`,
-										header: {
-											cookie: uni.getStorageSync('cookie')
-										},
-										success: (res) => {
-											let imgUrl = res.data.match(/img src=\"(.*?)\"/)
-											if (imgUrl) {
-												replyObj.text +=
-													`<img style="max-width:80%" src="https://yaohuo.me${imgUrl[1]}">`
-											} else {
-												let fileUrl = res.data.match(
-													/\"(\/bbs\/download.*?)\"/)
-												if (fileUrl) {
-													replyObj.text +=
-														`<a href="https://yaohuo.me${fileUrl[1]}">点击复制附件链接</a>`
-												}
-											}
-										}
-									})
-								}
-								if (ContentBox.name === 'a' && ContentBox.attribs.href.indexOf('bbs-') < 0 &&
-									ContentBox.attribs.href.indexOf(
-										'bbs/Book_re.aspx') < 0 && ContentBox.attribs.href.indexOf(
-										'bbs/Book_re_del.aspx') < 0 &&
-									ContentBox.attribs.href.indexOf('book_re_addfileshow') < 0) {
-									replyObj.text +=
-										`<a href="${ContentBox.attribs.href}">${ContentBox.children[0].data}</a>`
-								}
-								if (ContentBox.name === 'a' && ContentBox.attribs.href.indexOf('bbs-') > -1) {
-									let url = ContentBox.attribs.href
-									replyObj.text += `<a href="${url}">${ContentBox.children[0].data}</a>`
 								}
 							})
 						}
