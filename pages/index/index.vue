@@ -77,6 +77,7 @@
 	} from '@/utils/yaohuo.js'
 	import {
 		getAuthHeader,
+		syncAuthCookieFromSystem,
 		hasAuthCookie
 	} from '@/utils/auth.js'
 	export default {
@@ -144,7 +145,8 @@
 			}
 		},
 		onShow() {
-			if (!hasAuthCookie(uni.getStorageSync('cookie'))) {
+			const cookie = uni.getStorageSync('cookie') || syncAuthCookieFromSystem()
+			if (!hasAuthCookie(cookie)) {
 				uni.removeStorageSync('cookie')
 				uni.redirectTo({
 					url: '/pages/login/login'

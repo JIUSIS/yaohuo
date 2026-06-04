@@ -1,5 +1,5 @@
 <template>
-	<view>
+	<view class="webview-page">
 		<web-view :src="url"></web-view>
 	</view>
 </template>
@@ -8,46 +8,64 @@
 	import {
 		syncAuthCookieFromSystem
 	} from '@/utils/auth.js'
+
 	export default {
 		data() {
 			return {
 				url: '',
-				loginCheckTimer: null
-			}
-		},
-		methods: {
-			checkLogin() {
-				if (this.url.indexOf('waplogin.aspx') < 0) {
-					return
-				}
-				if (syncAuthCookieFromSystem()) {
-					uni.showToast({
-						title: '登陆成功',
-						icon: 'success'
-					})
-					setTimeout(() => {
-						uni.navigateBack()
-					}, 500)
-				}
+				loginCheckTimer: null,
+				loginMode: false,
+				redirecting: false
 			}
 		},
 		onLoad(option) {
 			this.url = decodeURIComponent(option.url || '')
-			if (this.url.indexOf('waplogin.aspx') > -1) {
-				this.loginCheckTimer = setInterval(() => {
-					this.checkLogin()
-				}, 1000)
+			this.loginMode = option.login === '1' || this.url.indexOf('waplogin.aspx') > -1
+			if (this.loginMode) {
+				this.startLoginCheck()
 			}
 		},
 		onUnload() {
-			if (this.loginCheckTimer) {
-				clearInterval(this.loginCheckTimer)
-				this.loginCheckTimer = null
+			this.stopLoginCheck()
+		},
+		methods: {
+			checkLogin() {
+				if (!this.loginMode || this.redirecting) {
+					return
+				}
+				if (syncAuthCookieFromSystem()) {
+					this.redirecting = true
+					this.stopLoginCheck()
+					uni.showToast({
+						title: '登录成功',
+						icon: 'success'
+					})
+					setTimeout(() => {
+						uni.reLaunch({
+							url: '/pages/index/index'
+						})
+					}, 300)
+				}
+			},
+			startLoginCheck() {
+				this.stopLoginCheck()
+				this.loginCheckTimer = setInterval(() => {
+					this.checkLogin()
+				}, 1000)
+			},
+			stopLoginCheck() {
+				if (this.loginCheckTimer) {
+					clearInterval(this.loginCheckTimer)
+					this.loginCheckTimer = null
+				}
 			}
 		}
 	}
 </script>
 
-<style>
-
+<style lang="scss" scoped>
+	.webview-page {
+		width: 100vw;
+		height: 100vh;
+	}
 </style>
