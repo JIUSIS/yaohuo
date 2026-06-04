@@ -1,6 +1,7 @@
 <template>
 	<view class="webview-page">
 		<web-view :src="url"></web-view>
+		<view v-if="url && !loginMode" class="browser-open-btn" @click.stop="openCurrentUrlInBrowser">浏览器打开</view>
 	</view>
 </template>
 
@@ -9,6 +10,9 @@
 		syncAuthCookieFromSystem,
 		verifyAuthCookie
 	} from '@/utils/auth.js'
+	import {
+		openInBrowser
+	} from '@/utils/browser.js'
 
 	export default {
 		data() {
@@ -31,6 +35,9 @@
 			this.stopLoginCheck()
 		},
 		methods: {
+			openCurrentUrlInBrowser() {
+				openInBrowser(this.url)
+			},
 			checkLogin() {
 				if (!this.loginMode || this.redirecting || this.checking || !syncAuthCookieFromSystem()) {
 					return
@@ -74,5 +81,19 @@
 	.webview-page {
 		width: 100vw;
 		height: 100vh;
+	}
+
+	.browser-open-btn {
+		position: fixed;
+		right: 24rpx;
+		bottom: 34rpx;
+		z-index: 20;
+		padding: 14rpx 22rpx;
+		border-radius: 8rpx;
+		background: rgba(7, 193, 96, .92);
+		color: #fff;
+		font-size: 26rpx;
+		line-height: 1;
+		box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, .16);
 	}
 </style>

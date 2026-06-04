@@ -262,7 +262,7 @@
 			search(e) {
 				this.page = 1
 				this.searchContent = e.value
-				let url = `https://yaohuo.me/bbs/book_list.aspx?action=search&type=title&key=${this.searchContent}`
+				let url = `https://yaohuo.me/bbs/book_list.aspx?action=search&type=title&key=${encodeURIComponent(this.searchContent || '')}`
 				uni.navigateTo({
 					url: `/pages/bbsList/bbsList?url=${encodeURIComponent(JSON.stringify({url}))}`
 				})

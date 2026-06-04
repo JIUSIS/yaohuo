@@ -59,6 +59,8 @@
 						<image src="../../static/music.png" class="tool-image small" mode="aspectFit"></image>
 					</view>
 				</view>
+				<button v-if="!replyData.content && !replyData.face" class="browser-open-btn" size="mini"
+					@click="$emit('open-browser')">浏览器打开</button>
 				<button v-show="replyData.content || replyData.face" :loading="loading" :disabled="loading"
 					class="submit-btn" type="primary" size="mini" @click="reply">发表</button>
 			</view>
@@ -603,6 +605,16 @@
 	}
 
 	.submit-btn {
+		color: #fff;
+		height: 70rpx;
+		line-height: 70rpx;
+		background-color: #07c160;
+		margin: 0;
+		padding: 0 28rpx;
+		flex: 0 0 auto;
+	}
+
+	.browser-open-btn {
 		color: #fff;
 		height: 70rpx;
 		line-height: 70rpx;

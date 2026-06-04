@@ -1,6 +1,6 @@
 <template>
 	<view class="content">
-		<view v-for="(post,index) in posts" :key="index" class="post-card" @click="goToDetail(post.url)">
+		<view v-for="(post,index) in posts" :key="post.id || post.url || index" class="post-card" @click="goToDetail(post.url)">
 			<view class="title f-16">
 				{{index+1}}.{{post.title}}
 			</view>
@@ -21,84 +21,110 @@
 			</view>
 			<view class="tags">
 				<uni-tag class="tag" v-for="(tag,tagIndex) in post.tags" :key="tagIndex" :circle="true"
-					:type="typeObj[tag]" :text="tag"></uni-tag><strong></strong>
+					:type="typeObj[tag] || 'default'" :text="tag"></uni-tag><strong></strong>
 			</view>
 		</view>
-		<uni-load-more style="height: 50rpx;" v-show="page!==1" :status="status"></uni-load-more>
+		<uni-load-more style="height: 50rpx;" v-show="page!==1 || status === 'loading'" :status="status"></uni-load-more>
 	</view>
 </template>
 
 <script>
 	import {
-		cheerio
-	} from '@/utils/cheerio.js'
-	import {
 		getAuthHeader,
 		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		decodeHtml,
+		stripHtml
+	} from '@/utils/html.js'
+
+	const DEFAULT_URL = 'https://yaohuo.me/bbs/book_list.aspx?gettotal=2022&action=new'
+	const PAGE_SIZE = 15
+
 	export default {
 		props: {
 			url: {
 				type: String,
-				default: 'https://yaohuo.me/bbs/book_list.aspx?gettotal=2022&action=new'
+				default: DEFAULT_URL
 			}
 		},
 		data() {
 			return {
 				posts: [],
 				page: 1,
-				totalPage: 0,
+				totalPage: 1,
 				status: 'more',
 				canFresh: true,
+				isLoading: false,
 				typeObj: {
 					'附': 'success',
 					'赏': 'primary',
 					'肉': 'warning',
 					'精': 'error',
 					'结': 'default'
-				},
+				}
 			}
 		},
-		mounted(option) {
-			this.fetchData()
+		watch: {
+			url(newUrl, oldUrl) {
+				if (newUrl && newUrl !== oldUrl) {
+					this.refreshData()
+				}
+			}
+		},
+		mounted() {
+			if (this.url !== '') {
+				this.fetchData()
+			}
 		},
 		methods: {
-			loadMore() {
-				if (this.page < this.totalPage) {
-					this.page++
-					this.status = 'loading'
-					if (!this.isSearch) {
-						this.fetchData()
-					} else {
-						this.searchNext()
-					}
+			getBaseUrl() {
+				return this.url || DEFAULT_URL
+			},
+			buildPageUrl(url, page) {
+				const base = String(url || '')
+				if (!base) {
+					return ''
 				}
+				const replaced = base.replace(/([?&])page=[^&#]*/i, `$1page=${page}`)
+				return replaced === base ? `${base}${base.indexOf('?') > -1 ? '&' : '?'}page=${page}` : replaced
+			},
+			loadMore() {
+				if (this.isLoading || this.status === 'noMore' || this.page >= this.totalPage) {
+					return
+				}
+				this.page++
+				this.status = 'loading'
+				this.fetchData()
 			},
 			refreshData() {
-				// if (!this.canFresh) {
-				// 	uni.showToast({
-				// 		title: '请勿频繁刷新',
-				// 		icon: 'error'
-				// 	})
-				// 	uni.stopPullDownRefresh()
-				// 	return
-				// }
-				this.isSearch = false
 				this.canFresh = false
 				this.page = 1
+				this.totalPage = 1
+				this.status = 'more'
+				this.posts = []
 				setTimeout(() => {
 					this.canFresh = true
 				}, 1000 * 20)
 				this.fetchData()
 			},
 			fetchData() {
-				if (this.canFresh && this.status != 'loading') {
+				if (this.isLoading) {
+					return
+				}
+				const requestedPage = this.page || 1
+				const requestUrl = this.buildPageUrl(this.getBaseUrl(), requestedPage)
+				if (!requestUrl) {
+					return
+				}
+				this.isLoading = true
+				if (this.canFresh && this.status !== 'loading') {
 					uni.showLoading({
 						title: '拉取数据中'
 					})
 				}
 				uni.request({
-					url: `${this.url}&page=${this.page}`,
+					url: requestUrl,
 					header: getAuthHeader(),
 					success: (res) => {
 						const html = String(res.data || '')
@@ -106,50 +132,55 @@
 							this.$emit('login-invalid')
 							return
 						}
-						let messageCountMatch = html.match(/收到(.*?)封飞鸽传书/)
-						if (messageCountMatch) {
-							uni.setNavigationBarTitle({
-								title: `妖火网（${messageCountMatch[1]}条新消息）`
+						this.updateNavigationTitle(html)
+						const tip = html.match(/<div class=["']tip["']>([\s\S]*?)<\/div>/i)
+						if (tip && stripHtml(tip[1]).indexOf('失效') > -1) {
+							this.$emit('login-invalid')
+							return uni.showToast({
+								title: '请重新登录',
+								icon: 'error'
 							})
-						} else {
-							uni.setNavigationBarTitle({
-								title: '妖火网'
-							})
-						}
-						let tip = html.match(/<div class=\"tip\">(.*?)<\/div>/)
-						if (tip) {
-							if (tip[1].indexOf('失效') > -1) {
-								this.$emit('login-invalid')
-								return uni.showToast({
-									title: '请重新登录',
-									icon: 'error'
-								})
-							}
 						}
 						this.handleSimpleData(html)
 					},
 					fail: () => {
+						if (requestedPage > 1) {
+							this.page = requestedPage - 1
+						}
 						this.status = 'more'
 					},
 					complete: () => {
+						this.isLoading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
 					}
 				})
 			},
-			searchNext() {
-				this.fetchSearchData()
+			updateNavigationTitle(html) {
+				const messageCountMatch = stripHtml(html).match(/收到\s*(.*?)\s*封飞鸽传书/)
+				if (messageCountMatch) {
+					uni.setNavigationBarTitle({
+						title: `妖火网（${messageCountMatch[1]}条新消息）`
+					})
+				} else {
+					uni.setNavigationBarTitle({
+						title: '妖火网'
+					})
+				}
 			},
 			getListClassId() {
-				const match = String(this.url || '').match(/classid=(\d+)/i)
+				const match = String(this.getBaseUrl()).match(/classid=(\d+)/i)
 				return match ? match[1] : ''
 			},
 			goToDetail(url) {
 				if (uni.getStorageSync('cookie')) {
-					let id = url.split('-')[1].split('.')[0]
+					const idMatch = String(url || '').match(/bbs-(\d+)\.html/i)
+					if (!idMatch) {
+						return
+					}
 					const classId = this.getListClassId()
 					uni.navigateTo({
-						url: `/pages/detail/detail?id=${id}${classId ? '&classid=' + classId : ''}`
+						url: `/pages/detail/detail?id=${idMatch[1]}${classId ? '&classid=' + classId : ''}`
 					})
 				} else {
 					uni.showModal({
@@ -164,85 +195,92 @@
 					})
 				}
 			},
-			handleSimpleData(resData) {
-				let posts = []
-				const linkReg = /<a[^>]+href=["']([^"']*bbs-(\d+)\.html[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
+			isNoiseTitle(title) {
+				title = String(title || '').trim()
+				return !title || /^\d+$/.test(title) || /返回|上一页|下一页|首页|尾页/.test(title)
+			},
+			parsePosts(resData) {
+				const posts = []
+				const seen = {}
+				const linkReg = /<a\b[^>]*href=["']([^"']*bbs-(\d+)\.html[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
 				let match
-				while ((match = linkReg.exec(resData)) && posts.length < 30) {
+				while ((match = linkReg.exec(resData))) {
+					const url = decodeHtml(match[1])
+					const id = match[2]
+					const title = stripHtml(match[3]).replace(/\s+/g, ' ').trim()
+					if (seen[id] || this.isNoiseTitle(title)) {
+						continue
+					}
+					seen[id] = true
 					posts.push({
-						title: match[3].replace(/<[^>]+>/g, ''),
-						url: match[1],
+						id,
+						title,
+						url,
 						author: '',
 						readCount: '',
 						replyCount: '',
 						tags: []
 					})
 				}
-				if (this.page === 1) {
-					this.posts = posts
-				} else {
-					this.posts = this.posts.concat(posts)
-				}
-				this.totalPage = this.page
-				this.status = 'noMore'
+				return posts
 			},
-			handleData(resData) {
-				const $ = cheerio.load(resData)
-				let pageMatch = $('.showpage')[0] ? $('.showpage')[0].children[0].data.match(/\d\/(\d{0,10}) 页/) : false;
-				this.totalPage = pageMatch ? pageMatch[1] : 1
-				let data = $('.listdata')
-				let posts = []
-				for (let index in data) {
-					let post = {}
-					let tags = []
-					if (data[index].type === 'tag') {
-						let children = data[index].children
-						let child = children[1]
-						while (child && child.name === 'img') {
-							tags.push(child.attribs.alt === '礼' ? '肉' : child.attribs.alt)
-							if (child.next.name === 'img') {
-								child = child.next
-							} else {
-								break
-							}
-						}
-						post.tags = tags
-						while (child) {
-							if (child.children && child.children.length === 2) {
-								break
-							}
-							if (child.name && child.name == 'a' && isNaN(child.children[0].data)) {
-								post.title = child.children[0].data
-								post.url = child.attribs.href
-							}
-							if (child.name && child.name == 'a' && !isNaN(child.children[0].data)) {
-								post.replyCount = child.children[0].data
-								post.readCount = child.next.data.replace(/[^\d.]/g, '')
-							}
-							if (child.type === 'text' && child.next.name && child.next.name === 'a') {
-								if (child.data === '/') {
-									post.author = child.prev.children[0].data
-								} else {
-									post.author = child.data.replace('/', '')
-								}
-							}
-							child = child.next
-						}
-						posts.push(post)
-					}
+			parseTotalPage(resData) {
+				const html = decodeHtml(String(resData || ''))
+				const text = stripHtml(html)
+				const ratioMatch = text.match(/(?:^|[^\d])\d+\s*\/\s*(\d{1,6})\s*页/)
+				if (ratioMatch) {
+					return Number(ratioMatch[1]) || 0
 				}
+				const totalMatch = text.match(/共\s*(\d{1,8})\s*(?:条|贴|帖|个|篇)/)
+				if (totalMatch) {
+					return Math.max(1, Math.ceil(Number(totalMatch[1]) / PAGE_SIZE))
+				}
+				const getTotalMatch = String(this.getBaseUrl()).match(/[?&]gettotal=(\d+)/i)
+				if (getTotalMatch) {
+					return Math.max(1, Math.ceil(Number(getTotalMatch[1]) / PAGE_SIZE))
+				}
+				const pages = []
+				html.replace(/[?&]page=(\d{1,6})/ig, (all, page) => {
+					const num = Number(page)
+					if (num > 0) {
+						pages.push(num)
+					}
+					return all
+				})
+				return pages.length ? Math.max.apply(null, pages) : 0
+			},
+			mergePosts(posts) {
 				if (this.page === 1) {
 					this.posts = posts
-				} else {
-					this.posts = this.posts.concat(posts)
+					return posts.length
 				}
-				if (this.page < this.totalPage) {
-					this.status = 'more'
+				const seen = {}
+				this.posts.forEach(post => {
+					if (post.id || post.url) {
+						seen[post.id || post.url] = true
+					}
+				})
+				const freshPosts = posts.filter(post => {
+					const key = post.id || post.url
+					if (!key || seen[key]) {
+						return false
+					}
+					seen[key] = true
+					return true
+				})
+				this.posts = this.posts.concat(freshPosts)
+				return freshPosts.length
+			},
+			handleSimpleData(resData) {
+				const posts = this.parsePosts(String(resData || ''))
+				const freshCount = this.mergePosts(posts)
+				const parsedTotalPage = this.parseTotalPage(resData)
+				if (parsedTotalPage) {
+					this.totalPage = Math.max(parsedTotalPage, this.page)
 				} else {
-					this.status = 'noMore'
+					this.totalPage = freshCount > 0 ? this.page + 1 : this.page
 				}
-				uni.hideLoading()
-				uni.stopPullDownRefresh()
+				this.status = this.page < this.totalPage ? 'more' : 'noMore'
 			}
 		}
 	}
@@ -254,7 +292,6 @@
 
 		.post-card {
 			padding: 20rpx 40rpx;
-			// box-shadow: rgba(0, 0, 0, .2) 0 1px 5px 0px;
 			margin-bottom: 20rpx;
 			border-radius: 8px;
 			position: relative;
@@ -270,8 +307,6 @@
 				}
 			}
 
-			.title {}
-
 			.info {
 				margin-top: 20rpx;
 
@@ -280,8 +315,6 @@
 					vertical-align: -1px;
 				}
 			}
-
-
 		}
 	}
 </style>

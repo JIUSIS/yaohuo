@@ -49,7 +49,8 @@
 			<view class="tip" v-if="info.status">
 				<text class="tip-text">{{info.status}}</text>
 			</view>
-			<comment id="comment" :comments="comments" :postInfo="info" @fetchReply="fetchReply" :postId="info.postId">
+			<comment id="comment" :comments="comments" :postInfo="info" @fetchReply="fetchReply"
+				@open-browser="openCurrentPostInBrowser" :postId="info.postId">
 			</comment>
 		</uni-transition>
 	</view>
@@ -66,6 +67,9 @@
 	import {
 		getAuthHeader
 	} from '@/utils/auth.js'
+	import {
+		openInBrowser
+	} from '@/utils/browser.js'
 	export default {
 		data() {
 			return {
@@ -99,6 +103,9 @@
 			}
 		},
 		methods: {
+			openCurrentPostInBrowser() {
+				openInBrowser(`https://yaohuo.me/bbs-${this.info.postId}.html`)
+			},
 			linkTap(e) {
 				if (e.href.indexOf('bbs/picDIY.aspx') > -1) {
 					let imgUrl = 'https://yaohuo.me/' + e.href.split('path=')[1]
