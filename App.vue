@@ -7,33 +7,44 @@
 </script>
 
 <style lang="scss">
+	page,
+	view,
+	text,
+	button,
+	input,
+	textarea {
+		-webkit-text-size-adjust: 100%;
+		font-size: 14px;
+		text-size-adjust: 100%;
+	}
+
 	/*每个页面公共css */
 	.f-12 {
-		font-size: 24rpx !important;
+		font-size: 12px !important;
 	}
 
 	.f-13 {
-		font-size: 26rpx;
+		font-size: 13px;
 	}
 
 	.f-14 {
-		font-size: 28rpx;
+		font-size: 14px;
 	}
 
 	.f-15 {
-		font-size: 30rpx;
+		font-size: 15px;
 	}
 
 	.f-16 {
-		font-size: 32rpx;
+		font-size: 16px;
 	}
 
 	.f-17 {
-		font-size: 34rpx;
+		font-size: 17px;
 	}
 
 	.f-18 {
-		font-size: 36rpx;
+		font-size: 18px;
 	}
 
 	.text-left {

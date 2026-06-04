@@ -326,6 +326,6 @@
 		padding: 80rpx 30rpx;
 		text-align: center;
 		color: #999;
-		font-size: 28rpx;
+		font-size: 14px;
 	}
 </style>

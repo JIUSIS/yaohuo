@@ -92,7 +92,7 @@
 		border-radius: 8rpx;
 		background: rgba(7, 193, 96, .92);
 		color: #fff;
-		font-size: 26rpx;
+		font-size: 13px;
 		line-height: 1;
 		box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, .16);
 	}

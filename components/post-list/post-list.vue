@@ -35,6 +35,7 @@
 	} from '@/utils/auth.js'
 	import {
 		decodeHtml,
+		extractClassBlocks,
 		stripHtml
 	} from '@/utils/html.js'
 
@@ -199,9 +200,126 @@
 				title = String(title || '').trim()
 				return !title || /^\d+$/.test(title) || /返回|上一页|下一页|首页|尾页/.test(title)
 			},
+			getLinkMatches(block) {
+				const links = []
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let match
+				while ((match = reg.exec(String(block || '')))) {
+					links.push({
+						href: decodeHtml(match[2]),
+						text: stripHtml(match[3]).replace(/\s+/g, ' ').trim(),
+						index: match.index,
+						end: reg.lastIndex
+					})
+				}
+				return links
+			},
+			normalizePostAuthor(text) {
+				return stripHtml(text)
+					.replace(/\s+/g, ' ')
+					.replace(/^(?:作者|楼主|发帖人|发贴人|发帖|发贴)\s*[:：]?/i, '')
+					.replace(/^[\/|｜\s]+|[\/|｜\s]+$/g, '')
+					.trim()
+			},
+			extractPostTags(block) {
+				const tags = []
+				const seen = {}
+				const reg = /<img\b[^>]*\balt\s*=\s*(["'])([^"']+)\1/ig
+				let match
+				while ((match = reg.exec(String(block || '')))) {
+					const tag = decodeHtml(match[2]).trim() === '礼' ? '肉' : decodeHtml(match[2]).trim()
+					if (tag && this.typeObj[tag] && !seen[tag]) {
+						seen[tag] = true
+						tags.push(tag)
+					}
+				}
+				return tags
+			},
+			extractPostAuthor(block, titleLink, replyLink, links) {
+				const start = titleLink ? titleLink.end : 0
+				const end = replyLink ? replyLink.index : Math.min(String(block || '').length, start + 300)
+				const beforeReply = String(block || '').slice(start, end)
+				const labelMatch = beforeReply.match(/(?:作者|楼主|发帖人|发贴人|发帖|发贴)\s*[:：]?\s*(?:<a\b[^>]*>([\s\S]*?)<\/a>|([^<\s\/|｜]+))/i)
+				if (labelMatch) {
+					return this.normalizePostAuthor(labelMatch[1] || labelMatch[2])
+				}
+				const userLinks = (links || []).filter(link => {
+					return link.index >= start &&
+						(!replyLink || link.index < replyLink.index) &&
+						/userinfo\.aspx|touserid=|mainuserid=/i.test(link.href) &&
+						link.text &&
+						!/^\d+$/.test(link.text)
+				})
+				if (userLinks.length) {
+					return this.normalizePostAuthor(userLinks[userLinks.length - 1].text)
+				}
+				const parts = stripHtml(beforeReply)
+					.replace(/\s+/g, ' ')
+					.split(/[\/|｜]/)
+					.map(item => this.normalizePostAuthor(item))
+					.filter(item => item && !/^\d+$/.test(item) && !/^(回|回复|阅|浏览|点击|最新|最后|时间)$/.test(item))
+				if (parts.length) {
+					return parts[parts.length - 1]
+				}
+				return ''
+			},
+			extractPostCounts(block, links, titleLink) {
+				const result = {
+					replyCount: '',
+					readCount: '',
+					replyLink: null
+				}
+				const titleEnd = titleLink ? titleLink.end : 0
+				const replyLink = (links || []).find(link => link.index > titleEnd && /^\d+$/.test(link.text))
+				if (replyLink) {
+					result.replyCount = replyLink.text
+					result.replyLink = replyLink
+					const afterReplyText = stripHtml(String(block || '').slice(replyLink.end, replyLink.end + 120))
+					const readMatch = afterReplyText.match(/(?:阅|浏览|点击)?\s*[:：\/]?\s*(\d+)/)
+					result.readCount = readMatch ? readMatch[1] : ''
+				}
+				if (!result.readCount) {
+					const text = stripHtml(block)
+					const readMatch = text.match(/(?:阅|浏览|点击)\s*[:：]?\s*(\d+)/)
+					result.readCount = readMatch ? readMatch[1] : ''
+				}
+				return result
+			},
+			parsePostBlock(block) {
+				const links = this.getLinkMatches(block)
+				const titleLink = links.find(link => /bbs-\d+\.html/i.test(link.href) && !this.isNoiseTitle(link.text))
+				if (!titleLink) {
+					return null
+				}
+				const idMatch = titleLink.href.match(/bbs-(\d+)\.html/i)
+				const counts = this.extractPostCounts(block, links, titleLink)
+				return {
+					id: idMatch ? idMatch[1] : '',
+					title: titleLink.text,
+					url: titleLink.href,
+					author: this.extractPostAuthor(block, titleLink, counts.replyLink, links),
+					readCount: counts.readCount,
+					replyCount: counts.replyCount,
+					tags: this.extractPostTags(block)
+				}
+			},
 			parsePosts(resData) {
 				const posts = []
 				const seen = {}
+				const blocks = extractClassBlocks(resData, 'listdata')
+				if (blocks.length) {
+					blocks.forEach(block => {
+						const post = this.parsePostBlock(block)
+						if (!post || !post.id || seen[post.id]) {
+							return
+						}
+						seen[post.id] = true
+						posts.push(post)
+					})
+					if (posts.length) {
+						return posts
+					}
+				}
 				const linkReg = /<a\b[^>]*href=["']([^"']*bbs-(\d+)\.html[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
 				let match
 				while ((match = linkReg.exec(resData))) {

@@ -49,6 +49,15 @@
 				}
 			}
 		}, {
+			"path": "pages/post/post",
+			"style": {
+				"navigationBarTitleText": "发帖",
+				"enablePullDownRefresh": false,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
 			"path": "pages/webview/webview",
 			"style": {
 				"navigationBarTitleText": "",

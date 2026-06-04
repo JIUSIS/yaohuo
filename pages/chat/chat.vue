@@ -9,7 +9,7 @@
 					<view class="item flex_col" :class=" item.type == 1 ? 'push':'pull' ">
 						<view class="content">
 							<mp-html :content="item.content" selectable lazy-load domain="https://yaohuo.me"
-								containerStyle="line-height:40rpx;word-break: break-all;font-size:30rpx"></mp-html>
+								containerStyle="line-height:20px;word-break: break-all;font-size:15px"></mp-html>
 						</view>
 					</view>
 				</view>
@@ -202,8 +202,46 @@
 				}
 				return parts
 			},
+			collectAttachmentImageHtml(html, currentContent) {
+				const parts = []
+				const seen = {}
+				const reg = /<img\b[^>]*>/ig
+				const imgTags = []
+				let match
+				while ((match = reg.exec(String(html || '')))) {
+					imgTags.push(match[0])
+				}
+				const attachmentTags = imgTags.filter(tag => /(?:^|\s)repic(?:\s|$)/i.test(getAttr(tag, 'class')))
+				;(attachmentTags.length ? attachmentTags : imgTags).forEach(tag => {
+					const src = absoluteYaohuoUrl(getAttr(tag, 'src') || getAttr(tag, 'data-src'))
+					if (!src || seen[src] || String(currentContent || '').indexOf(src) > -1) {
+						return
+					}
+					seen[src] = true
+					parts.push(`<br><img style="max-width:100%;" src="${src}">`)
+				})
+				return parts.join('')
+			},
+			collectAttachmentFileHtml(html, currentContent) {
+				const parts = []
+				const seen = {}
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']*download\.aspx[^"']*)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let match
+				while ((match = reg.exec(String(html || '')))) {
+					const fileUrl = absoluteYaohuoUrl(match[2])
+					if (!fileUrl || seen[fileUrl] || String(currentContent || '').indexOf(fileUrl) > -1) {
+						continue
+					}
+					seen[fileUrl] = true
+					const text = stripHtml(match[3]) || '查看附件'
+					parts.push(`<br><a href="${fileUrl}">${escapeHtml(text)}</a>`)
+				}
+				return parts.join('')
+			},
 			resolveAttachmentLink(url, currentContent) {
 				return this.fetchHtml(url).then(html => {
+					return this.collectAttachmentImageHtml(html, currentContent) || this.collectAttachmentFileHtml(html,
+						currentContent)
 					const imgMatch = String(html || '').match(/<img\b[^>]*src\s*=\s*(["'])([^"']+)\1[^>]*>/i)
 					if (imgMatch) {
 						const imgUrl = absoluteYaohuoUrl(imgMatch[2])
@@ -384,7 +422,7 @@
 
 	page {
 		background-color: #F3F3F3;
-		font-size: 28rpx;
+		font-size: 14px;
 	}
 
 	.tips {
@@ -438,7 +476,7 @@
 			height: 64rpx;
 			padding: 0 20rpx;
 			border-radius: 32rpx;
-			font-size: 28rpx;
+			font-size: 14px;
 		}
 
 		.send {

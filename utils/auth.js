@@ -83,6 +83,7 @@ export function syncAuthCookieFromSystem() {
 
 export function clearAuthCookie() {
 	uni.removeStorageSync('cookie')
+	uni.removeStorageSync('yaohuoUserId')
 	setSystemCookie('https://yaohuo.me', 'sidyaohuo=; expires=Thu, 01 Jan 1970 00:00:00 GMT;')
 }
 

@@ -23,7 +23,7 @@
 				<view class="grid mt-20">
 					<uni-grid :column="2" :showBorder="false" :square="false" :highlight="true" @change="goToWebview">
 						<uni-grid-item v-for="(item,index) in actionArr" :index="index" :key="index">
-							<view class="grid-item-box">
+							<view class="grid-item-box" @click.stop="openAction(index)">
 								<uni-icons :type="item.icon" :size="30" color="#777" />
 								<text class="text">{{item.name}}</text>
 							</view>
@@ -88,7 +88,8 @@
 				actionArr: [{
 					icon: 'compose',
 					name: '发帖',
-					url: 'https://yaohuo.me/wapindex.aspx?classid=206'
+					url: 'https://yaohuo.me/wapindex.aspx?classid=206',
+					nativeUrl: '/pages/post/post?classid=177'
 				}, {
 					icon: 'medal',
 					name: '游戏',
@@ -183,8 +184,35 @@
 				})
 			},
 			goToWebview(e) {
+				this.openAction(e && e.detail ? e.detail.index : 0)
+			},
+			openAction(index) {
+				const item = this.actionArr[Number(index)]
+				if (!item) {
+					return
+				}
+				if (item && item.nativeUrl) {
+					uni.navigateTo({
+						url: item.nativeUrl,
+						fail: err => {
+							uni.showToast({
+								title: '发帖页打不开',
+								icon: 'none'
+							})
+							console.log('OPEN_NATIVE_ACTION_FAIL', err)
+						}
+					})
+					return
+				}
 				uni.navigateTo({
-					url: `/pages/webview/webview?url=${this.actionArr[e.detail.index].url}`
+					url: `/pages/webview/webview?url=${encodeURIComponent(item.url)}`,
+					fail: err => {
+						uni.showToast({
+							title: '页面打不开',
+							icon: 'none'
+						})
+						console.log('OPEN_WEB_ACTION_FAIL', err)
+					}
 				})
 			},
 			goToRecommend(item) {

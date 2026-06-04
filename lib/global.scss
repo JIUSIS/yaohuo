@@ -1,7 +1,7 @@
 /* 根元素样式 设置页面背景、字体大小、字体颜色，字符间距、长单词换行 */
 page {
   background-color: #f3f3f3;
-  font-size: 28rpx;
+  font-size: 14px;
   box-sizing: border-box;
   color: #333;
   letter-spacing: 0;
@@ -11,13 +11,13 @@ page {
 /* 设置常用元素尺寸规则 */
 view,textarea,input,label,form,button,image{box-sizing: border-box;}
 /* 按钮样式处理 */
-button{font-size: 28rpx;}
+button{font-size: 14px;}
 /* 取消按钮默认的边框线效果 */
 button:after{border:none;}
 /* 设置图片默认样式，取消默认尺寸 */
 image{display: block;height: auto;width: auto;}
 /* 输入框默认字体大小 */
-textarea,input{font-size: 28rpx;};
+textarea,input{font-size: 14px;};
 
 /* 列式弹性盒子 */
 .flex_col {
@@ -72,12 +72,12 @@ textarea,input{font-size: 28rpx;};
 .bg_fff{background-color: #ffffff;}
  
 /* 字体大小 */
-.size_10 {font-size: 20rpx;}
-.size_12 {font-size: 24rpx;}
-.size_14 {font-size: 28rpx;}
-.size_16 {font-size: 32rpx;}
-.size_18 {font-size: 36rpx;}
-.size_20 {font-size: 40rpx;}
+.size_10 {font-size: 10px;}
+.size_12 {font-size: 12px;}
+.size_14 {font-size: 14px;}
+.size_16 {font-size: 16px;}
+.size_18 {font-size: 18px;}
+.size_20 {font-size: 20px;}
  
 /* 字体加粗 */
 .font_b{font-weight: bold;}
