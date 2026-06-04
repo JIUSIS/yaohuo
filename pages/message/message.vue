@@ -1,6 +1,6 @@
 <template>
 	<view class="content">
-		<view v-for="(item,index) in messages" :key="index" class="message" @click="goToDetail(index)"
+		<view v-for="(item,index) in messages" :key="item.id || index" class="message" @click="goToDetail(index)"
 			@longpress="deleteMessage(index)">
 			<view class="f-16">
 				<image v-if="item.unRead" src="https://yaohuo.me/NetImages/new.gif" style="width: 50rpx;height: 25rpx;">
@@ -9,35 +9,40 @@
 			<view class="info">
 				<uni-row>
 					<uni-col :span="12">
-						<view class="f-13">
-							{{item.from}}
-						</view>
+						<view class="f-13">{{item.from}}</view>
 					</uni-col>
 					<uni-col :span="12">
-						<view class="text-right f-13">
-							{{item.time}}
-						</view>
+						<view class="text-right f-13">{{item.time}}</view>
 					</uni-col>
 				</uni-row>
 			</view>
 		</view>
+		<view v-if="!messages.length && !loading" class="empty">暂无消息</view>
 	</view>
 </template>
 
 <script>
 	import {
-		cheerio
-	} from '@/utils/cheerio.js'
-	import {
-		getAuthHeader
+		clearAuthCookie,
+		getAuthHeader,
+		isLoginRequiredHtml
 	} from '@/utils/auth.js'
+	import {
+		absoluteYaohuoUrl,
+		decodeHtml,
+		extractClassBlocks,
+		getAttr,
+		stripHtml
+	} from '@/utils/html.js'
+
 	export default {
 		data() {
 			return {
 				messages: [],
 				page: 1,
-				totalPage: 0,
-				canFresh:true
+				totalPage: 1,
+				canFresh: true,
+				loading: false
 			}
 		},
 		onLoad() {
@@ -67,15 +72,23 @@
 		},
 		methods: {
 			deleteMessage(index) {
+				const message = this.messages[index]
+				const deleteUrl = this.getMessageDeleteUrl(message)
+				if (!deleteUrl) {
+					return uni.showToast({
+						title: '这条消息不能删除',
+						icon: 'none'
+					})
+				}
 				uni.showModal({
 					title: '操作提醒',
 					content: '删除后无法恢复，确认删除吗？',
 					success: (res) => {
 						if (res.confirm) {
 							uni.request({
-								url: `https://yaohuo.me/bbs/messagelist_del.aspx?action=godel&id=${this.messages[index].id}`,
+								url: deleteUrl,
 								header: getAuthHeader(),
-								success: (res) => {
+								success: () => {
 									this.messages.splice(index, 1)
 									uni.showToast({
 										title: '删除成功',
@@ -88,11 +101,173 @@
 				})
 			},
 			goToDetail(index) {
-				uni.navigateTo({
-					url: `/pages/chat/chat?id=${this.messages[index].id}&user=${this.messages[index].from}`
+				const message = this.messages[index]
+				if (!message) {
+					return
+				}
+				if (message.id) {
+					return uni.navigateTo({
+						url: `/pages/chat/chat?id=${message.id}&user=${encodeURIComponent(message.from || '')}`
+					})
+				}
+				if (message.href) {
+					return this.openMessageHref(message.href)
+				}
+				return uni.showToast({
+					title: '这条是系统通知',
+					icon: 'none'
 				})
 			},
+			getQueryValue(url, name) {
+				const reg = new RegExp(`[?&]${name}=([^&#]*)`, 'i')
+				const match = decodeHtml(url).match(reg)
+				if (!match) {
+					return ''
+				}
+				try {
+					return decodeURIComponent(match[1])
+				} catch (e) {
+					return match[1]
+				}
+			},
+			openMessageHref(href) {
+				const url = absoluteYaohuoUrl(href)
+				const postMatch = url.match(/\/bbs-(\d+)\.html/i) ||
+					url.match(/\/bbs\/book_(?:view|re)\.aspx[^#]*[?&]id=(\d+)/i)
+				if (postMatch) {
+					const classId = this.getQueryValue(url, 'classid')
+					return uni.navigateTo({
+						url: `/pages/detail/detail?id=${postMatch[1]}${classId ? `&classid=${classId}` : ''}`
+					})
+				}
+				uni.navigateTo({
+					url: `/pages/webview/webview?url=${encodeURIComponent(url)}`
+				})
+			},
+			getMessageDeleteUrl(message) {
+				if (!message) {
+					return ''
+				}
+				let url = message.deleteHref ? absoluteYaohuoUrl(message.deleteHref) : ''
+				const id = message.deleteId || message.id
+				if (!url && id) {
+					url = `https://yaohuo.me/bbs/messagelist_del.aspx?action=godel&id=${id}`
+				}
+				if (!url) {
+					return ''
+				}
+				if (/action=/i.test(url)) {
+					return url.replace(/([?&]action=)[^&#]*/i, '$1godel')
+				}
+				return url + (url.indexOf('?') > -1 ? '&' : '?') + 'action=godel'
+			},
+			getFirstActionHref(block) {
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([\s\S]*?)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let postHref = ''
+				let fallback = ''
+				let match
+				while ((match = reg.exec(block))) {
+					const tag = match[0]
+					const href = decodeHtml(getAttr(tag, 'href'))
+					const text = stripHtml(match[3])
+					if (!href || /^javascript:|^#/i.test(href) || /messagelist_del\.aspx/i.test(href) || text === '删除') {
+						continue
+					}
+					if (/messagelist_view\.aspx/i.test(href)) {
+						return href
+					}
+					if (!postHref && /\/?bbs-(\d+)\.html|\/bbs\/book_(?:view|re)\.aspx/i.test(href)) {
+						postHref = href
+					}
+					if (!fallback) {
+						fallback = href
+					}
+				}
+				return postHref || fallback
+			},
+			getDeleteInfo(block, viewId) {
+				const match = block.match(/<a\b[^>]*href\s*=\s*(["'])([^"']*messagelist_del\.aspx[^"']*)\1[^>]*>/i)
+				const href = match ? decodeHtml(match[2]) : ''
+				return {
+					href,
+					id: href ? this.getQueryValue(href, 'id') : (viewId || '')
+				}
+			},
+			goLogin() {
+				clearAuthCookie()
+				uni.redirectTo({
+					url: '/pages/login/login?clear=1'
+				})
+			},
+			parseTotalPage(html) {
+				const text = stripHtml(html)
+				const match = text.match(/(\d+)\s*\/\s*(\d+)\s*页/) || text.match(/共\s*(\d+)\s*页/)
+				return match ? Number(match[2] || match[1]) || 1 : 1
+			},
+			parseMessageBlock(block) {
+				const viewLink = block.match(/<a[^>]+href=["']([^"']*messagelist_view\.aspx[^"']*)["'][^>]*>([\s\S]*?)<\/a>/i)
+				const viewHref = viewLink ? decodeHtml(viewLink[1]) : ''
+				const viewId = viewHref ? this.getQueryValue(viewHref, 'id') : ''
+				const actionHref = this.getFirstActionHref(block)
+				const deleteInfo = this.getDeleteInfo(block, viewId)
+				const allText = stripHtml(block)
+				const fromMatch = allText.match(/来自\s*([^\[\]\n\r]+)/)
+				const timeMatch = allText.match(/\[([^\[\]]*(?:\d{1,2}:\d{2}|\d{1,2}-\d{1,2})[^\[\]]*)\]/) ||
+					allText.match(/(\d{2,4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2})/)
+				let content = viewLink ? stripHtml(viewLink[2]) : allText
+				content = content
+					.replace(/来自\s*[^\[\]\n\r]+/g, '')
+					.replace(/\[[^\[\]]*(?:\d{1,2}:\d{2}|\d{1,2}-\d{1,2})[^\[\]]*\]/g, '')
+					.replace(/删除/g, '')
+					.trim()
+				return {
+					id: viewId,
+					href: actionHref && !/messagelist_view\.aspx/i.test(actionHref) ? actionHref : '',
+					deleteId: deleteInfo.id,
+					deleteHref: deleteInfo.href,
+					content: content || (viewId ? '私信' : '系统通知'),
+					from: fromMatch ? fromMatch[1].trim() : '',
+					time: timeMatch ? (timeMatch[1] || '').trim() : '',
+					unRead: /new\.gif/i.test(block)
+				}
+			},
+			parseMessages(html) {
+				const blocks = extractClassBlocks(html, 'listmms')
+				const result = []
+				const seen = {}
+				if (blocks.length) {
+					blocks.forEach(block => {
+						const message = this.parseMessageBlock(block)
+						const key = message.id || message.href || `${message.content}|${message.from}|${message.time}`
+						if (!seen[key]) {
+							seen[key] = true
+							result.push(message)
+						}
+					})
+				} else {
+					const reg = /<a[^>]+href=["']([^"']*messagelist_view\.aspx[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
+					let match
+					while ((match = reg.exec(html))) {
+						const id = this.getQueryValue(match[1], 'id')
+						if (id && !seen[id]) {
+							seen[id] = true
+							result.push({
+								id,
+								href: '',
+								deleteId: id,
+								deleteHref: '',
+								content: stripHtml(match[2]) || '私信',
+								from: '',
+								time: '',
+								unRead: false
+							})
+						}
+					}
+				}
+				return result.filter(item => item.id || item.href || item.content)
+			},
 			fetchMessage() {
+				this.loading = true
 				uni.showLoading({
 					title: '加载中'
 				})
@@ -100,56 +275,29 @@
 					url: `https://yaohuo.me/bbs/messagelist.aspx?page=${this.page}`,
 					header: getAuthHeader(),
 					success: (res) => {
-						let $ = cheerio.load(res.data)
-						let showPage = $('.showpage')[0]
-						let pageText = showPage && showPage.children && showPage.children[0] ? showPage.children[0].data : ''
-						let pageMatch = pageText.match(/\d\/(\d{0,10}) 页/)
-						this.totalPage = pageMatch ? pageMatch[1] : 1
-						let messages = $('.listmms')
-						let messageArr = []
-						messages.each(index => {
-							let message = messages[index]
-							let msgObj = {}
-							msgObj.content = ''
-							msgObj.unRead = false
-							message.children.forEach((child, index) => {
-								if (child.data && index !== 0 && child.data !== ']') {
-									if (child.data.indexOf('来自') > -1) {
-										msgObj.from = child.data.replace('来自', '')
-									} else if (child.data[child.data.length - 1] === '[') {
-										msgObj.time = child.data.replace('[', '')
-									} else {
-										msgObj.content += child.data
-									}
-								}
-								if (child.type && child.name === 'img') {
-									if (child.attribs.src.indexOf('new.gif') > -1) {
-										msgObj.unRead = true
-									}
-								}
-								if (child.type && child.name === 'a') {
-									let id = child.attribs.href.match(/&id=(.*?)&/)
-									if (child.next.data !== ']') {
-										msgObj.content += child.children[0].data
-									}
-									msgObj.id = id[1]
-									// if (child.attribs.href.indexOf('messagelist_del.aspx') > -
-									// 	1) {
-									// 	// content +=
-									// 	// 	`<a href="https://yaohuo.me/bbs/messagelist_del.aspx?action=del&id=${id[1]}">${child.children[0].data}</a>`
-									// } else {
-									// 	// content +=
-									// 	// 	`<a href="/pages/chat/chat?id=${id[1]}">${child.children[0].data}</a>`
-									// }
-								}
-							})
-							messageArr.push(msgObj)
-						})
+						const html = String(res.data || '')
+						if (isLoginRequiredHtml(html)) {
+							return this.goLogin()
+						}
+						this.totalPage = this.parseTotalPage(html)
+						const messageArr = this.parseMessages(html)
 						if (this.page === 1) {
 							this.messages = messageArr
 						} else {
 							this.messages = this.messages.concat(messageArr)
 						}
+						if (!messageArr.length && this.page === 1) {
+							console.log('[YAOHUO_MESSAGE_EMPTY]', html.slice(0, 500))
+						}
+					},
+					fail: () => {
+						uni.showToast({
+							title: '消息加载失败',
+							icon: 'none'
+						})
+					},
+					complete: () => {
+						this.loading = false
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
 					}
@@ -164,10 +312,6 @@
 	}
 </style>
 <style scoped>
-	/* 	.content {
-		padding: 10rpx 20rpx;
-	} */
-
 	.message {
 		border-bottom: 1px solid #F3F3F3;
 		padding: 30rpx;
@@ -176,5 +320,12 @@
 	.info {
 		margin-top: 20rpx;
 		color: rgba(0, 0, 0, .3);
+	}
+
+	.empty {
+		padding: 80rpx 30rpx;
+		text-align: center;
+		color: #999;
+		font-size: 28rpx;
 	}
 </style>

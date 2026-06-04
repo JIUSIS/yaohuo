@@ -1,10 +1,14 @@
 <template>
 	<view>
-		<post-list ref="postList" :url="url"></post-list>
+		<post-list ref="postList" :url="url" @login-invalid="goLogin"></post-list>
 	</view>
 </template>
 
 <script>
+	import {
+		clearAuthCookie
+	} from '@/utils/auth.js'
+
 	export default {
 		data() {
 			return {
@@ -27,7 +31,12 @@
 			}
 		},
 		methods: {
-
+			goLogin() {
+				clearAuthCookie()
+				uni.redirectTo({
+					url: '/pages/login/login?clear=1'
+				})
+			}
 		}
 	}
 </script>

@@ -61,7 +61,7 @@
 			</view>
 			<uni-fab ref="fab" :pattern="pattern" :content="content" :horizontal="horizontal" :vertical="vertical"
 				:direction="direction" @trigger="trigger" />
-			<post-list style="margin-top: 10rpx;" ref="postList"></post-list>
+			<post-list style="margin-top: 10rpx;" ref="postList" @login-invalid="goLogin"></post-list>
 		</uni-transition>
 
 	</view>
@@ -76,9 +76,10 @@
 		idArr
 	} from '@/utils/yaohuo.js'
 	import {
+		clearAuthCookie,
 		getAuthHeader,
-		syncAuthCookieFromSystem,
-		hasAuthCookie
+		isLoginRequiredHtml,
+		verifyAuthCookie
 	} from '@/utils/auth.js'
 	export default {
 		data() {
@@ -125,7 +126,10 @@
 						text: '刷新'
 					}
 				],
-				messageCountMatch: 0
+				messageCountMatch: 0,
+				checkingAuth: false,
+				redirectingLogin: false,
+				hasFetchedHome: false
 			}
 		},
 		onReachBottom() {
@@ -140,20 +144,39 @@
 			}
 		},
 		onLoad() {
-			if (hasAuthCookie(uni.getStorageSync('cookie'))) {
-				this.fetchData()
-			}
+			this.checkAuthAndFetch()
 		},
 		onShow() {
-			const cookie = uni.getStorageSync('cookie') || syncAuthCookieFromSystem()
-			if (!hasAuthCookie(cookie)) {
-				uni.removeStorageSync('cookie')
-				uni.redirectTo({
-					url: '/pages/login/login'
-				})
-			}
+			this.checkAuthAndFetch()
 		},
 		methods: {
+			checkAuthAndFetch() {
+				if (this.redirectingLogin || this.checkingAuth) {
+					return
+				}
+				this.checkingAuth = true
+				verifyAuthCookie().then(valid => {
+					this.checkingAuth = false
+					if (!valid) {
+						this.goLogin()
+						return
+					}
+					if (!this.hasFetchedHome) {
+						this.hasFetchedHome = true
+						this.fetchData()
+					}
+				})
+			},
+			goLogin() {
+				if (this.redirectingLogin) {
+					return
+				}
+				this.redirectingLogin = true
+				clearAuthCookie()
+				uni.redirectTo({
+					url: '/pages/login/login?clear=1'
+				})
+			},
 			goToDetail(id) {
 				uni.navigateTo({
 					url: `/pages/detail/detail?id=${id}`
@@ -184,6 +207,10 @@
 					success: (res) => {
 						try {
 							const html = String(res.data || '')
+							if (isLoginRequiredHtml(html)) {
+								this.goLogin()
+								return
+							}
 							let messageCountMatch = html.match(/收到(.*?)封飞鸽传书/)
 							this.messageCountMatch = 0
 							if (messageCountMatch) {

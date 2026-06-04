@@ -6,7 +6,8 @@
 
 <script>
 	import {
-		syncAuthCookieFromSystem
+		syncAuthCookieFromSystem,
+		verifyAuthCookie
 	} from '@/utils/auth.js'
 
 	export default {
@@ -15,6 +16,7 @@
 				url: '',
 				loginCheckTimer: null,
 				loginMode: false,
+				checking: false,
 				redirecting: false
 			}
 		},
@@ -30,10 +32,15 @@
 		},
 		methods: {
 			checkLogin() {
-				if (!this.loginMode || this.redirecting) {
+				if (!this.loginMode || this.redirecting || this.checking || !syncAuthCookieFromSystem()) {
 					return
 				}
-				if (syncAuthCookieFromSystem()) {
+				this.checking = true
+				verifyAuthCookie().then(valid => {
+					this.checking = false
+					if (!valid) {
+						return
+					}
 					this.redirecting = true
 					this.stopLoginCheck()
 					uni.showToast({
@@ -45,13 +52,13 @@
 							url: '/pages/index/index'
 						})
 					}, 300)
-				}
+				})
 			},
 			startLoginCheck() {
 				this.stopLoginCheck()
 				this.loginCheckTimer = setInterval(() => {
 					this.checkLogin()
-				}, 1000)
+				}, 1200)
 			},
 			stopLoginCheck() {
 				if (this.loginCheckTimer) {

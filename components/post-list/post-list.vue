@@ -33,7 +33,8 @@
 		cheerio
 	} from '@/utils/cheerio.js'
 	import {
-		getAuthHeader
+		getAuthHeader,
+		isLoginRequiredHtml
 	} from '@/utils/auth.js'
 	export default {
 		props: {
@@ -101,6 +102,10 @@
 					header: getAuthHeader(),
 					success: (res) => {
 						const html = String(res.data || '')
+						if (isLoginRequiredHtml(html)) {
+							this.$emit('login-invalid')
+							return
+						}
 						let messageCountMatch = html.match(/收到(.*?)封飞鸽传书/)
 						if (messageCountMatch) {
 							uni.setNavigationBarTitle({
@@ -114,11 +119,7 @@
 						let tip = html.match(/<div class=\"tip\">(.*?)<\/div>/)
 						if (tip) {
 							if (tip[1].indexOf('失效') > -1) {
-								setTimeout(() => {
-									uni.redirectTo({
-										url: '/pages/login/login'
-									})
-								}, 500)
+								this.$emit('login-invalid')
 								return uni.showToast({
 									title: '请重新登录',
 									icon: 'error'

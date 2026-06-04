@@ -13,6 +13,14 @@ export function hasAuthCookie(cookie) {
 	return /sidyaohuo=([^;]+)/.test(String(cookie || ''))
 }
 
+export function isLoginRequiredHtml(html) {
+	html = String(html || '')
+	const hasLoginLink = /(href|action)=["']\/?waplogin\.aspx(?:[?"']|$)/i.test(html)
+	return /请先\s*<a[^>]+href=["']\/?waplogin\.aspx["'][^>]*>登录<\/a>\s*浏览完整内容/i.test(html) ||
+		/<title>\s*登录\s*-\s*妖火网\s*<\/title>/i.test(html) ||
+		(hasLoginLink && /请先|登录|登录失效|重新登录|失效/.test(html))
+}
+
 export function getAuthSid() {
 	const cookie = getAuthCookie()
 	const match = String(cookie).match(/sidyaohuo=([^;]+)/)
@@ -71,6 +79,35 @@ export function syncAuthCookieFromSystem() {
 		return cookie
 	}
 	return ''
+}
+
+export function clearAuthCookie() {
+	uni.removeStorageSync('cookie')
+	setSystemCookie('https://yaohuo.me', 'sidyaohuo=; expires=Thu, 01 Jan 1970 00:00:00 GMT;')
+}
+
+export function verifyAuthCookie() {
+	const cookie = syncAuthCookieFromSystem() || uni.getStorageSync('cookie')
+	if (!hasAuthCookie(cookie)) {
+		clearAuthCookie()
+		return Promise.resolve(false)
+	}
+	return new Promise(resolve => {
+		uni.request({
+			url: 'https://yaohuo.me/',
+			header: getAuthHeader(),
+			success: res => {
+				const valid = !isLoginRequiredHtml(res && res.data)
+				if (!valid) {
+					clearAuthCookie()
+				}
+				resolve(valid)
+			},
+			fail: () => {
+				resolve(false)
+			}
+		})
+	})
 }
 
 export function setSystemCookie(url, cookie) {

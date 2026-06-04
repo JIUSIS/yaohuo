@@ -27,7 +27,8 @@
 						<view class="uni-comment-date">
 							<text>{{comment.time}}</text>
 							<view class="flex">
-								<view class="uni-comment-reply-btn danger" v-if="comment.remanage" v-for="item in comment.remanage" @click="CommentOption(index, item)">删除
+								<view class="uni-comment-reply-btn danger" v-if="comment.remanage && comment.remanage.length"
+									v-for="item in comment.remanage" @click="CommentOption(index, item)">删除
 								</view>
 								<view class="uni-comment-reply-btn" v-if="!postInfo.isEnd" @click="replyToFloor(index)">回复
 								</view>
@@ -40,37 +41,40 @@
 				</view>
 			</view>
 		</view>
-		<view style="position: fixed;bottom: 0;background-color: #f7f7f7;left: 0;right: 0;">
-			<view class="" style="padding: 10rpx 20rpx 0;">
-				<uni-row>
-					<uni-col :span="18">
-						<view style="display: inline-block;margin-right: 20rpx;">
-							<picker @change="bindPickerChange" :value="faceIndex" :range="array" range-key="name">
-								<image src="../../static/smile.png" style="width: 70rpx;height: 70rpx;"></image>
-							</picker>
+		<view class="comment-composer">
+			<view class="comment-toolbar">
+				<view class="tool-group">
+					<view class="tool-button" @click="toggleFacePanel">
+						<image v-if="selectedFace" :src="getFaceUrl(selectedFace.face)" class="tool-image selected-face"
+							mode="aspectFit"></image>
+						<image v-else src="../../static/smile.png" class="tool-image" mode="aspectFit"></image>
+					</view>
+					<view class="tool-button" @click="uploadImage">
+						<image src="../../static/picture.png" class="tool-image" mode="aspectFit"></image>
+					</view>
+					<view class="tool-button" @click="showToast">
+						<image src="../../static/video.png" class="tool-image small" mode="aspectFit"></image>
+					</view>
+					<view class="tool-button" @click="showToast">
+						<image src="../../static/music.png" class="tool-image small" mode="aspectFit"></image>
+					</view>
+				</view>
+				<button v-show="replyData.content || replyData.face" :loading="loading" :disabled="loading"
+					class="submit-btn" type="primary" size="mini" @click="reply">发表</button>
+			</view>
+			<view v-if="facePanelShow" class="face-panel">
+				<scroll-view scroll-y class="face-scroll">
+					<view class="face-grid">
+						<view class="face-cell" :class="{active: !replyData.face}" @click="selectFace(0)">
+							<text>无</text>
 						</view>
-						<view style="display: inline-block;margin-right: 25rpx;">
-							<image @click="uploadImage" src="../../static/picture.png"
-								style="width: 70rpx;height: 70rpx;"></image>
+						<view v-for="(item,index) in faceList" :key="item.face" class="face-cell"
+							:class="{active: replyData.face === item.face}" @click="selectFace(index + 1)">
+							<image :src="getFaceUrl(item.face)" mode="aspectFit"></image>
+							<text>{{item.name}}</text>
 						</view>
-						<view style="display: inline-block;margin-right: 30rpx;">
-							<image @click="showToast" src="../../static/video.png"
-								style="width: 60rpx;height: 60rpx;margin-bottom: 5rpx;">
-							</image>
-						</view>
-						<view style="display: inline-block;margin-right: 20rpx;">
-							<image @click="showToast" src="../../static/music.png"
-								style="width: 60rpx;height: 60rpx;margin-bottom: 5rpx;">
-							</image>
-						</view>
-					</uni-col>
-					<uni-col :span="6">
-						<view class="text-right" v-show="replyData.content">
-							<button :loading="loading" :disabled="loading" class="submit-btn" type="primary" size="mini"
-								@click="reply">发表</button>
-						</view>
-					</uni-col>
-				</uni-row>
+					</view>
+				</scroll-view>
 			</view>
 			<view style="background-color: #fff;padding: 20rpx;margin: 0 20rpx 20rpx;">
 				<textarea :maxlength="-1" :fixed="true" style="width: 100%;" :cursor-spacing="20"
@@ -112,6 +116,7 @@
 				replyTips: '请勿乱打字回复,以免被加黑。',
 				array: faces,
 				faceIndex: 0,
+				facePanelShow: false,
 				loading: false,
 				isReplyFloor: false,
 				replyModalShow: false,
@@ -128,6 +133,14 @@
 					g: '快速回复'
 				},
 				originReplyData: {}
+			}
+		},
+		computed: {
+			faceList() {
+				return this.array.filter(item => item.face)
+			},
+			selectedFace() {
+				return this.array[this.faceIndex] && this.array[this.faceIndex].face ? this.array[this.faceIndex] : null
 			}
 		},
 		mounted() {
@@ -151,39 +164,125 @@
 					icon: 'none'
 				})
 			},
+			getFaceUrl(face) {
+				return face ? `https://yaohuo.me/face/${encodeURIComponent(face)}` : ''
+			},
+			toggleFacePanel() {
+				this.facePanelShow = !this.facePanelShow
+			},
+			selectFace(index) {
+				this.faceIndex = index
+				const item = this.array[index]
+				this.replyData.face = item && item.face ? item.face : ''
+				this.facePanelShow = false
+			},
+			extractUploadUrl(data) {
+				if (!data) {
+					return ''
+				}
+				if (typeof data === 'string') {
+					const text = data.trim()
+					if (/^https?:\/\//i.test(text)) {
+						return text
+					}
+					try {
+						return this.extractUploadUrl(JSON.parse(text))
+					} catch (e) {
+						const urlMatch = text.match(/https?:\/\/[^\s"'<>\\]+/i)
+						return urlMatch ? urlMatch[0] : ''
+					}
+				}
+				if (data.code === 200 && data.data && data.data.url) {
+					return data.data.url
+				}
+				if (data.data) {
+					if (typeof data.data === 'string' && /^https?:\/\//i.test(data.data)) {
+						return data.data
+					}
+					if (Array.isArray(data.data) && data.data[0]) {
+						return this.extractUploadUrl(data.data[0])
+					}
+					const dataUrl = this.extractUploadUrl(data.data)
+					if (dataUrl) {
+						return dataUrl
+					}
+				}
+				if (data.url && /^https?:\/\//i.test(data.url)) {
+					return data.url
+				}
+				for (const key in data) {
+					if (typeof data[key] === 'string' && /^https?:\/\//i.test(data[key])) {
+						return data[key]
+					}
+				}
+				return ''
+			},
+			uploadToHost(filePath, hostIndex) {
+				const hosts = [{
+					url: 'https://tc.qdqqd.com/uploadmt',
+					field: 'file'
+				}, {
+					url: 'https://aapi.helioho.st/upload.php',
+					field: 'image'
+				}, {
+					url: 'https://yh-pic.ihcloud.net/api/qq.php',
+					field: 'image'
+				}]
+				const host = hosts[hostIndex]
+				if (!host) {
+					return Promise.reject(new Error('全部图床都上传失败'))
+				}
+				return new Promise((resolve, reject) => {
+					uni.uploadFile({
+						url: host.url,
+						filePath,
+						name: host.field,
+						header: {
+							Referer: 'https://yaohuo.me/'
+						},
+						success: (uploadFileRes) => {
+							const url = this.extractUploadUrl(uploadFileRes.data)
+							if (url) {
+								resolve(url)
+							} else {
+								reject(new Error(String(uploadFileRes.data || '').slice(0, 80) || '图床未返回图片地址'))
+							}
+						},
+						fail: (err) => {
+							reject(new Error((err && (err.errMsg || err.message)) || '上传请求失败'))
+						}
+					})
+				}).catch(() => this.uploadToHost(filePath, hostIndex + 1))
+			},
 			uploadImage() {
 				uni.chooseImage({
+					count: 1,
 					success: (chooseImageRes) => {
-						const tempFilePaths = chooseImageRes.tempFilePaths;
+						const tempFilePaths = chooseImageRes.tempFilePaths
 						uni.showLoading({
 							title: '图片上传中'
 						})
-						uni.uploadFile({
-							url: 'https://yh-pic.ihcloud.net/api/qq.php', //仅为示例，非真实的接口地址
-							filePath: tempFilePaths[0],
-							name: 'image',
-							success: (uploadFileRes) => {
-								let jsonRes = JSON.parse(uploadFileRes.data)
-								let url = jsonRes.data.url
-								if (url.indexOf('失效') > -1){
-									uni.showToast({
-										title:'接口暂时失效'
-									})
-								}else{
-									let ubb = `[img]${url}[/img]`
-									this.replyData.content += ubb
-								}
-							},
-							fail: () => {
-								uni.showToast({
-									title: '上传失败',
-									icon: 'error'
-								})
-							},
-							complete: () => {
-								uni.hideLoading()
-							}
-						});
+						this.uploadToHost(tempFilePaths[0], 0).then(url => {
+							this.replyData.content += `${this.replyData.content ? '\n' : ''}[img]${url}[/img]`
+							uni.hideLoading()
+							uni.showToast({
+								title: '上传成功',
+								icon: 'success'
+							})
+						}).catch(err => {
+							uni.hideLoading()
+							uni.showModal({
+								title: '上传失败',
+								content: (err && err.message) || '图床接口暂时不可用',
+								showCancel: false
+							})
+						})
+					},
+					fail: () => {
+						uni.showToast({
+							title: '未选择图片',
+							icon: 'none'
+						})
 					}
 				})
 			},
@@ -199,16 +298,13 @@
 					})
 				}
 			},
-			bindPickerChange: function(e) {
-				this.faceIndex = e.detail.value;
-				if (this.faceIndex) {
-					this.replyData.face = this.array[this.faceIndex].face
-				}
-			},
 			cancelReply() {
 				this.isReplyFloor = false
 				delete this.replyData.reply
 				delete this.replyData.touserid
+				this.faceIndex = 0
+				this.replyData.face = ''
+				this.facePanelShow = false
 				this.replyData.g = '快速回复'
 				this.replyTips = '请勿乱打字回复,以免被加黑。'
 			},
@@ -236,12 +332,12 @@
 							confirmText: '确定删除',
 							success: (res) => {
 								if (res.confirm) {
-									let url = item.url.replace('go', 'godel')
+									let url = this.getDeleteUrl(item.url)
 									uni.showLoading({
 										mask:true
 									})
 									uni.request({
-										url: 'https://yaohuo.me' + url,
+										url,
 										method: 'GET',
 										header: getAuthHeader({
 											'Content-Type': 'application/x-www-form-urlencoded'
@@ -249,8 +345,9 @@
 										success: (res) => {
 											let $ = cheerio.load(res.data)
 											let replies = $('.tip')
-											let tip = replies[0]['children'][0]
-											if (tip.next) {
+											let tip = replies[0] && replies[0]['children'] ? replies[0]['children'][0] : null
+											let tipText = tip && tip['data'] ? tip['data'] : '服务器未返回删除结果'
+											if (tip && tip.next) {
 												uni.showToast({
 													title: '删除成功',
 													icon: 'success'
@@ -259,7 +356,7 @@
 											} else {
 												uni.showModal({
 													title: '删除失败',
-													content: tip['data'],
+													content: tipText,
 													showCancel: false
 												})
 											}
@@ -280,6 +377,18 @@
 						break;
 					default:
 				}
+			},
+			getDeleteUrl(rawUrl) {
+				let url = String(rawUrl || '').replace(/&amp;/g, '&')
+				if (/^\/\//.test(url)) {
+					url = 'https:' + url
+				} else if (!/^https?:\/\//i.test(url)) {
+					url = 'https://yaohuo.me' + (url.charAt(0) === '/' ? url : '/' + url)
+				}
+				if (/action=/i.test(url)) {
+					return url.replace(/([?&]action=)[^&#]*/i, '$1godel')
+				}
+				return url + (url.indexOf('?') > -1 ? '&' : '?') + 'action=godel'
 			},
 			goToUserArea(index) {
 				let comment = this.comments[index]
@@ -306,7 +415,7 @@
 						icon: 'none'
 					})
 				}
-				if (!this.replyData.content) {
+				if (!this.replyData.content && !this.replyData.face) {
 					return uni.showToast({
 						title: '评论不得为空',
 						icon: 'error'
@@ -450,11 +559,110 @@
 		color: #333 !important;
 	}
 
+	.comment-composer {
+		position: fixed;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		background-color: #f7f7f7;
+	}
+
+	.comment-toolbar {
+		height: 92rpx;
+		padding: 10rpx 20rpx 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		box-sizing: border-box;
+	}
+
+	.tool-group {
+		display: flex;
+		align-items: center;
+		gap: 18rpx;
+	}
+
+	.tool-button {
+		width: 72rpx;
+		height: 72rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 72rpx;
+	}
+
+	.tool-image {
+		width: 70rpx;
+		height: 70rpx;
+		display: block;
+	}
+
+	.tool-image.small {
+		width: 62rpx;
+		height: 62rpx;
+	}
+
 	.submit-btn {
 		color: #fff;
 		height: 70rpx;
 		line-height: 70rpx;
 		background-color: #07c160;
+		margin: 0;
+		padding: 0 28rpx;
+		flex: 0 0 auto;
+	}
+
+	.selected-face {
+		width: 70rpx;
+		height: 70rpx;
+	}
+
+	.face-panel {
+		margin: 8rpx 20rpx 0;
+		background: #fff;
+		border: 1px solid #eee;
+		border-radius: 8rpx;
+	}
+
+	.face-scroll {
+		height: 330rpx;
+	}
+
+	.face-grid {
+		display: flex;
+		flex-wrap: wrap;
+		padding: 10rpx;
+	}
+
+	.face-cell {
+		width: 20%;
+		height: 106rpx;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		box-sizing: border-box;
+		border-radius: 8rpx;
+		color: #666;
+		font-size: 20rpx;
+	}
+
+	.face-cell.active {
+		background: #eaf7f4;
+		color: #0a8f7c;
+	}
+
+	.face-cell image {
+		width: 58rpx;
+		height: 58rpx;
+		margin-bottom: 4rpx;
+	}
+
+	.face-cell text {
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.floor {

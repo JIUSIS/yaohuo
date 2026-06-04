@@ -355,6 +355,34 @@
 					.replace(/&nbsp;/g, ' ')
 					.trim()
 			},
+			decodeReplyAttr(text) {
+				return String(text || '')
+					.replace(/&amp;/g, '&')
+					.replace(/&quot;/g, '"')
+					.replace(/&#39;/g, "'")
+			},
+			extractReplyActions(block) {
+				const actions = []
+				const seen = {}
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let match
+				while ((match = reg.exec(String(block || '')))) {
+					const href = this.decodeReplyAttr(match[2])
+					const text = this.stripHtml(match[3])
+					const isDelete = /book_re_del\.aspx/i.test(href) ||
+						/(^|[-_\s])(?:del|delete)(?:[-_\s]|$)/i.test(match[0]) ||
+						text === '删' || text === '删除'
+					if (!isDelete || seen[href]) {
+						continue
+					}
+					seen[href] = true
+					actions.push({
+						url: href,
+						option: '删'
+					})
+				}
+				return actions
+			},
 			parseReplies(html) {
 				let comments = []
 				html = String(html || '')
@@ -379,7 +407,7 @@
 						userId: userIdMatch ? userIdMatch[1] : '',
 						time: timeMatch ? this.stripHtml(timeMatch[1]) : '',
 						text: textMatch ? textMatch[1] : '',
-						remanage: []
+						remanage: this.extractReplyActions(block)
 					}
 					if (comment.text || comment.user || comment.time) {
 						comments.push(comment)

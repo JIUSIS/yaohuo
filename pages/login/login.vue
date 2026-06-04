@@ -6,9 +6,9 @@
 
 <script>
 	import {
-		hasAuthCookie,
-		setSystemCookie,
-		syncAuthCookieFromSystem
+		clearAuthCookie,
+		syncAuthCookieFromSystem,
+		verifyAuthCookie
 	} from '@/utils/auth.js'
 
 	export default {
@@ -16,17 +16,15 @@
 			return {
 				loginUrl: 'https://yaohuo.me/waplogin.aspx?fallback=1',
 				checkTimer: null,
+				checking: false,
 				redirecting: false
 			}
 		},
 		onLoad(option) {
 			if (option && option.clear === '1') {
-				this.clearLoginState()
+				clearAuthCookie()
 			}
-			if (hasAuthCookie(uni.getStorageSync('cookie')) || syncAuthCookieFromSystem()) {
-				this.goHome()
-				return
-			}
+			this.checkLogin()
 			this.startLoginCheck()
 		},
 		onShow() {
@@ -36,15 +34,11 @@
 			this.stopLoginCheck()
 		},
 		methods: {
-			clearLoginState() {
-				uni.removeStorageSync('cookie')
-				setSystemCookie('https://yaohuo.me', 'sidyaohuo=; expires=Thu, 01 Jan 1970 00:00:00 GMT;')
-			},
 			startLoginCheck() {
 				this.stopLoginCheck()
 				this.checkTimer = setInterval(() => {
 					this.checkLogin()
-				}, 1000)
+				}, 1200)
 			},
 			stopLoginCheck() {
 				if (this.checkTimer) {
@@ -53,16 +47,20 @@
 				}
 			},
 			checkLogin() {
-				if (this.redirecting) {
+				if (this.redirecting || this.checking || !syncAuthCookieFromSystem()) {
 					return
 				}
-				if (syncAuthCookieFromSystem()) {
-					uni.showToast({
-						title: '登录成功',
-						icon: 'success'
-					})
-					this.goHome()
-				}
+				this.checking = true
+				verifyAuthCookie().then(valid => {
+					this.checking = false
+					if (valid) {
+						uni.showToast({
+							title: '登录成功',
+							icon: 'success'
+						})
+						this.goHome()
+					}
+				})
 			},
 			goHome() {
 				if (this.redirecting) {
