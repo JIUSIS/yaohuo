@@ -28,6 +28,9 @@
 	import {
 		cheerio
 	} from '@/utils/cheerio.js'
+	import {
+		getAuthHeader
+	} from '@/utils/auth.js'
 	export default {
 		data() {
 			return {
@@ -71,9 +74,7 @@
 						if (res.confirm) {
 							uni.request({
 								url: `https://yaohuo.me/bbs/messagelist_del.aspx?action=godel&id=${this.messages[index].id}`,
-								header: {
-									cookie: uni.getStorageSync('cookie')
-								},
+								header: getAuthHeader(),
 								success: (res) => {
 									this.messages.splice(index, 1)
 									uni.showToast({
@@ -97,12 +98,12 @@
 				})
 				uni.request({
 					url: `https://yaohuo.me/bbs/messagelist.aspx?page=${this.page}`,
-					header: {
-						cookie: uni.getStorageSync('cookie')
-					},
+					header: getAuthHeader(),
 					success: (res) => {
 						let $ = cheerio.load(res.data)
-						let pageMatch = $('.showpage')[0].children[0].data.match(/\d\/(\d{0,10}) 页/)
+						let showPage = $('.showpage')[0]
+						let pageText = showPage && showPage.children && showPage.children[0] ? showPage.children[0].data : ''
+						let pageMatch = pageText.match(/\d\/(\d{0,10}) 页/)
 						this.totalPage = pageMatch ? pageMatch[1] : 1
 						let messages = $('.listmms')
 						let messageArr = []

@@ -15,10 +15,16 @@
 			this.url = JSON.parse(decodeURIComponent(option.url)).url
 		},
 		onReachBottom() {
-			this.$refs.postList.loadMore()
+			if (this.$refs.postList) {
+				this.$refs.postList.loadMore()
+			}
 		},
 		onPullDownRefresh() {
-			this.$refs.postList.refreshData()
+			if (this.$refs.postList) {
+				this.$refs.postList.refreshData()
+			} else {
+				uni.stopPullDownRefresh()
+			}
 		},
 		methods: {
 

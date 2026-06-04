@@ -32,6 +32,9 @@
 	import {
 		cheerio
 	} from '@/utils/cheerio.js'
+	import {
+		getAuthHeader
+	} from '@/utils/auth.js'
 	export default {
 		props: {
 			url: {
@@ -95,11 +98,10 @@
 				}
 				uni.request({
 					url: `${this.url}&page=${this.page}`,
-					header: {
-						cookie: uni.getStorageSync('cookie')
-					},
+					header: getAuthHeader(),
 					success: (res) => {
-						let messageCountMatch = res.data.match(/收到(.*?)封飞鸽传书/)
+						const html = String(res.data || '')
+						let messageCountMatch = html.match(/收到(.*?)封飞鸽传书/)
 						if (messageCountMatch) {
 							uni.setNavigationBarTitle({
 								title: `妖火网（${messageCountMatch[1]}条新消息）`
@@ -109,7 +111,7 @@
 								title: '妖火网'
 							})
 						}
-						let tip = res.data.match(/<div class=\"tip\">(.*?)<\/div>/)
+						let tip = html.match(/<div class=\"tip\">(.*?)<\/div>/)
 						if (tip) {
 							if (tip[1].indexOf('失效') > -1) {
 								setTimeout(() => {
@@ -123,18 +125,30 @@
 								})
 							}
 						}
-						this.handleData(res.data)
+						this.handleSimpleData(html)
+					},
+					fail: () => {
+						this.status = 'more'
+					},
+					complete: () => {
+						uni.hideLoading()
+						uni.stopPullDownRefresh()
 					}
 				})
 			},
 			searchNext() {
 				this.fetchSearchData()
 			},
+			getListClassId() {
+				const match = String(this.url || '').match(/classid=(\d+)/i)
+				return match ? match[1] : ''
+			},
 			goToDetail(url) {
 				if (uni.getStorageSync('cookie')) {
 					let id = url.split('-')[1].split('.')[0]
+					const classId = this.getListClassId()
 					uni.navigateTo({
-						url: `/pages/detail/detail?id=${id}`
+						url: `/pages/detail/detail?id=${id}${classId ? '&classid=' + classId : ''}`
 					})
 				} else {
 					uni.showModal({
@@ -148,6 +162,28 @@
 						}
 					})
 				}
+			},
+			handleSimpleData(resData) {
+				let posts = []
+				const linkReg = /<a[^>]+href=["']([^"']*bbs-(\d+)\.html[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
+				let match
+				while ((match = linkReg.exec(resData)) && posts.length < 30) {
+					posts.push({
+						title: match[3].replace(/<[^>]+>/g, ''),
+						url: match[1],
+						author: '',
+						readCount: '',
+						replyCount: '',
+						tags: []
+					})
+				}
+				if (this.page === 1) {
+					this.posts = posts
+				} else {
+					this.posts = this.posts.concat(posts)
+				}
+				this.totalPage = this.page
+				this.status = 'noMore'
 			},
 			handleData(resData) {
 				const $ = cheerio.load(resData)

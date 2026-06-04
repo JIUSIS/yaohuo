@@ -63,6 +63,9 @@
 		idObj
 	} from '@/utils/yaohuo.js'
 	import HTMLParser from '@/utils/html-parser.js'
+	import {
+		getAuthHeader
+	} from '@/utils/auth.js'
 	export default {
 		data() {
 			return {
@@ -73,12 +76,15 @@
 				page: 1,
 				totalPage: 0,
 				status: 'more',
+				replyPageBaseUrl: '',
+				replyGo: '',
 				idObj: idObj,
 				honorArr: []
 			}
 		},
 		onLoad(option) {
 			this.info.postId = option.id
+			this.info.classId = option.classid || option.classId || ''
 			this.fetchDetail()
 		},
 		onPullDownRefresh() {
@@ -113,34 +119,35 @@
 					}
 				}
 			},
-			fetchReply(flag) {
+			fetchReply(flag, auto) {
 				if (flag) {
 					this.page = 1
+					this.replyPageBaseUrl = ''
+					this.replyGo = String(Date.now()).slice(-5)
 					uni.showLoading({
 						title: '刷新评论中'
 					})
 				}
+				if (!this.page) {
+					this.page = 1
+				}
+				const url = this.getReplyUrl()
 				uni.request({
-					url: `https://yaohuo.me/bbs/book_re.aspx?id=${this.info.postId}&classid=${this.info.classId}&page=${this.page}`,
-					header: {
-						cookie: uni.getStorageSync('cookie')
-					},
+					url,
+					header: getAuthHeader(),
 					success: (res) => {
-						let $ = cheerio.load(res.data)
-						let replies = $('.list-reply')
-						let reply = replies[0]
-						let comments = []
-						this.getReply(reply, comments)
-						uni.hideLoading()
+						const replyHtml = String(res.data || '')
+						this.updateReplyPaging(replyHtml)
+						let comments = this.parseReplies(replyHtml)
 						if (flag) {
 							this.comments = comments
 							uni.showToast({
 								title: '刷新成功'
 							})
 						} else {
-							this.comments = this.comments.concat(comments)
+							this.comments = this.sortComments(this.mergeComments(this.comments, comments))
 						}
-						if (this.page === this.totalPage) {
+						if (!comments.length || this.page >= this.totalPage) {
 							this.status = 'noMore'
 						} else {
 							this.status = 'more'
@@ -150,9 +157,129 @@
 						uni.hideLoading()
 					},
 					complete: () => {
-						uni.hideNavigationBarLoading()
+						if (!auto) {
+							uni.hideLoading()
+							uni.hideNavigationBarLoading()
+						}
 					}
 				})
+			},
+			getReplyUrl() {
+				const classId = this.cleanClassId(this.info.classId)
+				const baseUrl = this.replyPageBaseUrl ||
+					`https://yaohuo.me/bbs/book_re.aspx?action=class&id=${this.info.postId}&siteid=1000&classid=${classId}&lpage=&ot=1&go=${this.replyGo || Date.now()}`
+				return this.setQueryParam(this.cleanReplyListUrl(baseUrl), 'page', this.page || 1)
+			},
+			updateReplyPaging(html) {
+				const moreUrl = this.extractReplyMoreUrl(html)
+				if (moreUrl) {
+					this.replyPageBaseUrl = this.cleanReplyListUrl(this.removeQueryParam(moreUrl, 'page'))
+				}
+				const totalMatch = String(html || '').match(/getTotal=(\d+)/i)
+				if (totalMatch) {
+					this.totalPage = Math.ceil(Number(totalMatch[1]) / 15)
+				}
+				if (!this.totalPage && this.info.replyCount) {
+					this.totalPage = Math.ceil(Number(this.info.replyCount) / 15)
+				}
+				if (!this.totalPage) {
+					this.totalPage = 1
+				}
+			},
+			extractReplyMoreUrl(html) {
+				html = String(html || '')
+				const moreBlock = html.match(/<div[^>]+class=["'][^"']*more[^"']*["'][^>]*>[\s\S]*?<\/div>/i)
+				if (!moreBlock) {
+					return ''
+				}
+				const hrefMatch = moreBlock[0].match(/<a[^>]+href=["']([^"']*(?:book_re\.aspx|getTotal=)[^"']*)["']/i)
+				if (!hrefMatch || hrefMatch[1].indexOf('page=') < 0) {
+					return ''
+				}
+				return this.normalizeReplyUrl(hrefMatch[1])
+			},
+			normalizeReplyUrl(url) {
+				url = String(url || '').replace(/&amp;/g, '&')
+				if (url.indexOf('//') === 0) {
+					return 'https:' + url
+				}
+				if (url.indexOf('http') === 0) {
+					return url
+				}
+				if (url.charAt(0) === '/') {
+					return 'https://yaohuo.me' + url
+				}
+				return 'https://yaohuo.me/' + url
+			},
+			setQueryParam(url, name, value) {
+				const hashParts = String(url || '').split('#')
+				const main = hashParts.shift()
+				const hash = hashParts.length ? '#' + hashParts.join('#') : ''
+				const parts = main.split('?')
+				const path = parts.shift()
+				const query = parts.join('?')
+				const params = query ? query.split('&').filter(Boolean) : []
+				const nextParams = params.filter(item => item.split('=')[0].toLowerCase() !== name.toLowerCase())
+				nextParams.push(name + '=' + encodeURIComponent(value))
+				return path + '?' + nextParams.join('&') + hash
+			},
+			removeQueryParam(url, name) {
+				const hashParts = String(url || '').split('#')
+				const main = hashParts.shift()
+				const hash = hashParts.length ? '#' + hashParts.join('#') : ''
+				const parts = main.split('?')
+				const path = parts.shift()
+				const query = parts.join('?')
+				const params = query ? query.split('&').filter(Boolean) : []
+				const nextParams = params.filter(item => item.split('=')[0].toLowerCase() !== name.toLowerCase())
+				return path + (nextParams.length ? '?' + nextParams.join('&') : '') + hash
+			},
+			cleanReplyListUrl(url) {
+				url = this.setQueryParam(url, 'id', this.info.postId)
+				url = this.setQueryParam(url, 'siteid', 1000)
+				url = this.setQueryParam(url, 'classid', this.cleanClassId(this.info.classId))
+				;['mainuserid', 'reply', 'touserid', 'tofloor'].forEach(name => {
+					url = this.removeQueryParam(url, name)
+				})
+				return url
+			},
+			cleanClassId(classId) {
+				const match = String(classId || '').match(/\d+/)
+				return match ? match[0] : ''
+			},
+			decodeHtmlText(text) {
+				return String(text || '')
+					.replace(/&amp;/g, '&')
+					.replace(/&quot;/g, '"')
+					.replace(/&#39;/g, "'")
+			},
+			decodeUrlText(text) {
+				try {
+					return decodeURIComponent(String(text || ''))
+				} catch (e) {
+					return String(text || '')
+				}
+			},
+			extractClassId(html) {
+				const raw = String(html || '')
+				const htmlDecoded = this.decodeHtmlText(raw)
+				const urlDecoded = this.decodeUrlText(htmlDecoded)
+				const sources = [raw, htmlDecoded, urlDecoded]
+				const patterns = [
+					/name=["']classid["'][^>]*value=["']?(\d+)/i,
+					/(?:[?&])classid=(\d+)/i,
+					/classid=(\d+)/i,
+					/classid%3d(\d+)/i
+				]
+				for (let i = 0; i < sources.length; i++) {
+					for (let j = 0; j < patterns.length; j++) {
+						const match = sources[i].match(patterns[j])
+						if (match) {
+							return match[1]
+						}
+					}
+				}
+				return ''
 			},
 			fetchDetail() {
 				uni.showLoading({
@@ -160,11 +287,10 @@
 				})
 				uni.request({
 					url: `https://yaohuo.me/bbs-${this.info.postId}.html`,
-					header: {
-						cookie: uni.getStorageSync('cookie')
-					},
+					header: getAuthHeader(),
 					success: (res) => {
-						let tip = res.data.match(/<div class=\"tip\">(.*?)<\/div>/)
+						const html = String(res.data || '')
+						let tip = html.match(/<div class=\"tip\">(.*?)<\/div>/)
 						this.info.isEnd = false
 						if (tip) {
 							if (tip[1].indexOf('结束原因') > -1) {
@@ -186,51 +312,164 @@
 								})
 							}
 						}
-						let replyCountMatch = res.data.match(/全部回帖\((.*?)\)/)
+						let replyCountMatch = html.match(/全部回帖\((.*?)\)/)
 						this.info.replyCount = replyCountMatch ? replyCountMatch[1] : 0
 						this.totalPage = Math.ceil(this.info.replyCount / 15)
-						let classIdMatch = res.data.match(/&classid=(.*?)"/)
-						this.info.classId = classIdMatch ? classIdMatch[1] : ''
-						let content = res.data.match(/<!--listS-->([\s\S]*?)<!--listE-->/)
+						this.info.classId = this.cleanClassId(this.extractClassId(html) || this.info.classId)
+						let content = html.match(/<!--listS-->([\s\S]*?)<!--listE-->/)
 						this.nodes = content ? content[1].replace(
 							/height=\"100%px\"/, '').replace(/width=\"100%px\"/, 'width="100%"').replace(
 							/<a href=\"\/bbs\/picDIY.aspx.*?\""/,
 							'<a href=\"\"') : ' '
-						let fileList = res.data.match(/<div class=\"line\">([\s\S]*?)<\/div>/g)
+						let fileList = html.match(/<div class=\"line\">([\s\S]*?)<\/div>/g)
 						if (fileList) {
 							fileList.forEach(r => {
 								this.nodes += r.replace(/\/bbs\/download.aspx/,
 									'https://yaohuo.me/bbs/download.aspx')
 							})
 						}
-						let $ = cheerio.load(res.data)
-						let honorNodes = $('.subtitle')[0].children
-						let firstNode = honorNodes[0]
-						let honorArr = []
-						while (firstNode) {
-							firstNode = firstNode.next
-							if (firstNode.type === 'text' && firstNode.data.indexOf('荣誉') > -1) {
-								firstNode = firstNode.next
-								break
-							}
-						}
-						while (firstNode) {
-							if (firstNode.type === 'tag' && firstNode.name === 'br') {
-								break
-							}
-							if (firstNode.type === 'tag' && firstNode.name === 'img') {
-								honorArr.push(`https://yaohuo.me${firstNode.attribs.src}`)
-							}
-							firstNode = firstNode.next
-						}
-						this.honorArr = honorArr
-						this.getPostInfo($)
+						this.honorArr = []
+						this.getPostInfoFromHtml(html)
 						this.comments = []
+						this.page = 1
+						this.replyPageBaseUrl = ''
+						this.replyGo = String(Date.now()).slice(-5)
 						this.fetchReply()
+					},
+					fail: () => {
+						uni.showToast({
+							title: '加载失败',
+							icon: 'none'
+						})
+					},
+					complete: () => {
 						uni.hideLoading()
 						uni.stopPullDownRefresh()
 					}
 				})
+			},
+			stripHtml(html) {
+				return String(html || '')
+					.replace(/<br\s*\/?>/gi, '\n')
+					.replace(/<[^>]+>/g, '')
+					.replace(/&nbsp;/g, ' ')
+					.trim()
+			},
+			parseReplies(html) {
+				let comments = []
+				html = String(html || '')
+				const blocks = this.splitReplyBlocks(html)
+				blocks.forEach((block, index) => {
+					const floorMatch = block.match(/data-floor=["']([^"']+)["']/i) || block.match(/class=["'][^"']*(?:floornumber|floor-number|floor-info)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i) || block.match(/\[(?:<[^>]+>)*([^<\]]+)(?:<[^>]+>)*楼(?:<[^>]+>)*\]/)
+					const userMatch = block.match(/class=["'][^"']*(?:renick|user-name)[^"']*["'][\s\S]*?<span[^>]*>([\s\S]*?)<\/span>|class=["'][^"']*(?:renick|user-name)[^"']*["'][\s\S]*?<a[^>]*>([\s\S]*?)<\/a>|class=["'][^"']*(?:renick|user-name)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i)
+					const userIdMatch = block.match(/touserid=(\d+)/i) || block.match(/mainuserid=(\d+)/i) || block.match(/class=["']renickid["'][^>]*>(\d+)<\/span>/i)
+					const timeMatch = block.match(/class=["'][^"']*(?:retime|redate|post-date)[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i)
+					const textMatch = block.match(/class=["'][^"']*(?:retext|post-content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:span|div)>/i)
+					let floor = floorMatch ? this.stripHtml(floorMatch[1]).replace('楼', '') : String(index + 1)
+					if (floor === '沙发') {
+						floor = '1'
+					} else if (floor === '椅子') {
+						floor = '2'
+					} else if (floor === '板凳') {
+						floor = '3'
+					}
+					const comment = {
+						floor,
+						user: userMatch ? this.stripHtml(userMatch[1] || userMatch[2] || userMatch[3]) : '',
+						userId: userIdMatch ? userIdMatch[1] : '',
+						time: timeMatch ? this.stripHtml(timeMatch[1]) : '',
+						text: textMatch ? textMatch[1] : '',
+						remanage: []
+					}
+					if (comment.text || comment.user || comment.time) {
+						comments.push(comment)
+					}
+				})
+				return comments
+			},
+			splitReplyBlocks(html) {
+				const makeBlocks = (starts) => {
+					const listEnd = html.indexOf('<!--listE-->')
+					return starts.map((start, index) => {
+						const next = starts[index + 1]
+						const end = next || (listEnd > start ? listEnd : html.length)
+						return html.slice(start, end > start ? end : html.length)
+					})
+				}
+				const collectStarts = (reg) => {
+					const starts = []
+					let match
+					while ((match = reg.exec(html))) {
+						starts.push(match.index)
+					}
+					return starts
+				}
+				const replyStarts = collectStarts(/<[^>]+class=["'][^"']*list-reply[^"']*["'][^>]*>/ig)
+				if (replyStarts.length) {
+					return makeBlocks(replyStarts)
+				}
+				const postStarts = collectStarts(/<[^>]+class=["'][^"']*forum-post[^"']*["'][^>]*>/ig)
+				if (postStarts.length > 1) {
+					return makeBlocks(postStarts)
+				}
+				const numberStarts = collectStarts(/<[^>]+class=["'][^"']*(?:number|floor-number|floor-info)[^"']*["'][^>]*>/ig)
+				if (numberStarts.length > 1) {
+					return makeBlocks(numberStarts)
+				}
+				const lineStarts = collectStarts(/<[^>]+class=["'][^"']*reline[^"']*["'][^>]*>/ig)
+				if (lineStarts.length > 1) {
+					return makeBlocks(lineStarts)
+				}
+				const floorStarts = collectStarts(/\[(?:\d+|沙发|椅子|板凳|顶楼)楼?\]/g)
+				if (floorStarts.length > 1) {
+					return makeBlocks(floorStarts)
+				}
+				const userStarts = collectStarts(/<span[^>]+class=["']renick["'][^>]*>/ig)
+				if (userStarts.length > 1) {
+					return makeBlocks(userStarts)
+				}
+				return makeBlocks(replyStarts.length ? replyStarts : floorStarts)
+			},
+			commentKey(comment) {
+				return [
+					comment.floor || '',
+					comment.userId || '',
+					comment.user || '',
+					comment.time || '',
+					this.stripHtml(comment.text || '').slice(0, 80)
+				].join('|')
+			},
+			mergeComments(oldComments, newComments) {
+				const seen = {}
+				const result = []
+				;(oldComments || []).concat(newComments || []).forEach(comment => {
+					const key = this.commentKey(comment)
+					if (!seen[key]) {
+						seen[key] = true
+						result.push(comment)
+					}
+				})
+				return result
+			},
+			sortComments(comments) {
+				return (comments || []).slice().sort((a, b) => {
+					const af = Number(a.floor)
+					const bf = Number(b.floor)
+					if (!isNaN(af) && !isNaN(bf)) {
+						return af - bf
+					}
+					return 0
+				})
+			},
+			getPostInfoFromHtml(html) {
+				const titleMatch = String(html || '').match(/<title>(.*?)<\/title>/i)
+				if (!this.info.title && titleMatch) {
+					this.info.title = titleMatch[1].replace(/\s*-\s*妖火网.*/, '').trim()
+				}
+				const readMatch = String(html || '').match(/浏览(?:次数)?[^\d]*(\d+)/)
+				this.info.readCount = readMatch ? readMatch[1] : this.info.readCount || ''
+				const timeMatch = String(html || '').match(/(\d{4}-\d{1,2}-\d{1,2}[\s\S]{0,20})/)
+				this.info.time = timeMatch ? this.stripHtml(timeMatch[1]) : this.info.time || ''
 			},
 			getReply(reply, comments) {
 				if (!reply || reply.data == 'listE') {
@@ -275,7 +514,6 @@
 							replyObj.remanage = [];
 							first.children.forEach(remanageBox => {
 								if (remanageBox.type === 'tag' && remanageBox.name === 'a') {
-									console.log(remanageBox)
 									replyObj.remanage.push({
 										url: remanageBox.attribs.href,
 										option: remanageBox.children[0].data
@@ -308,9 +546,7 @@
 										if (ContentBox.attribs.href.indexOf('book_re_addfileshow') > -1) {
 											uni.request({
 												url: `https://yaohuo.me${ContentBox.attribs.href}`,
-												header: {
-													cookie: uni.getStorageSync('cookie')
-												},
+												header: getAuthHeader(),
 												success: (res) => {
 													let imgUrl = res.data.match(/img src=\"(.*?)\"/)
 													if (imgUrl) {

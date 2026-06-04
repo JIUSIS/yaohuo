@@ -87,6 +87,10 @@
 		cheerio
 	} from '@/utils/cheerio.js'
 	import faces from '@/utils/faces.js'
+	import {
+		getAuthHeader,
+		getAuthSid
+	} from '@/utils/auth.js'
 	export default {
 		name: 'comment',
 		props: {
@@ -120,7 +124,7 @@
 					siteid: 1000,
 					lpage: 1,
 					classid: this.postInfo.classId,
-					sid: uni.getStorageSync('cookie').split('=')[1],
+					sid: getAuthSid(),
 					g: '快速回复'
 				},
 				originReplyData: {}
@@ -130,6 +134,17 @@
 			this.originReplyData = JSON.parse(JSON.stringify(this.replyData))
 		},
 		methods: {
+			getPostClassId() {
+				const match = String(this.postInfo.classId || '').match(/\d+/)
+				return match ? match[0] : ''
+			},
+			syncReplyData() {
+				this.replyData.id = this.postInfo.postId
+				this.replyData.classid = this.getPostClassId()
+				this.replyData.siteid = 1000
+				this.replyData.sid = getAuthSid()
+				this.replyData.lpage = this.replyData.lpage || 1
+			},
 			showToast() {
 				uni.showToast({
 					title: '开发中',
@@ -201,13 +216,18 @@
 				let floor = this.comments[index]
 				this.replyData.g = '发表回复'
 				this.replyData.reply = floor.floor
-				this.replyData.touserid = floor.user.match(/\((.*?)\)/)[1]
+				const userId = floor.userId || this.getUserId(floor.user)
+				if (!userId) {
+					return uni.showToast({
+						title: '无法获取用户ID',
+						icon: 'none'
+					})
+				}
+				this.replyData.touserid = userId
 				this.isReplyFloor = true
 				this.replyTips = `回复${floor.floor}楼：`
 			},
 			CommentOption(index, item){
-				console.log(index)
-				console.log(item)
 				switch (item.option) {
 					case '删':
 						uni.showModal({
@@ -223,10 +243,9 @@
 									uni.request({
 										url: 'https://yaohuo.me' + url,
 										method: 'GET',
-										header: {
-											'Content-Type': 'application/x-www-form-urlencoded',
-											cookie: uni.getStorageSync('cookie')
-										},
+										header: getAuthHeader({
+											'Content-Type': 'application/x-www-form-urlencoded'
+										}),
 										success: (res) => {
 											let $ = cheerio.load(res.data)
 											let replies = $('.tip')
@@ -263,13 +282,30 @@
 				}
 			},
 			goToUserArea(index) {
-				let user = this.comments[index].user
-				let id = user.match(/\((\d{0,10})\)/)
+				let comment = this.comments[index]
+				let id = comment.userId || this.getUserId(comment.user)
+				if (!id) {
+					return uni.showToast({
+						title: '无法获取用户ID',
+						icon: 'none'
+					})
+				}
 				uni.navigateTo({
-					url: `/pages/webview/webview?url=https://yaohuo.me/bbs/userinfo.aspx?touserid=${id[1]}`
+					url: `/pages/webview/webview?url=https://yaohuo.me/bbs/userinfo.aspx?touserid=${id}`
 				})
 			},
+			getUserId(user) {
+				const match = String(user || '').match(/\((\d{1,10})\)/)
+				return match ? match[1] : ''
+			},
 			reply() {
+				this.syncReplyData()
+				if (!this.replyData.classid) {
+					return uni.showToast({
+						title: '缺少版块ID',
+						icon: 'none'
+					})
+				}
 				if (!this.replyData.content) {
 					return uni.showToast({
 						title: '评论不得为空',
@@ -281,12 +317,20 @@
 				uni.request({
 					url: 'https://yaohuo.me/bbs/book_re.aspx',
 					method: 'POST',
-					header: {
-						'Content-Type': 'application/x-www-form-urlencoded',
-						cookie: uni.getStorageSync('cookie')
-					},
+					header: getAuthHeader({
+						'Content-Type': 'application/x-www-form-urlencoded'
+					}),
 					data: this.replyData,
 					success: (res) => {
+						const html = String(res.data || '')
+						if (/<div class=["']tip["'][^>]*>[\s\S]*?(失败|错误|验证码|登录|为空|加黑|限制|不能|请先)/.test(html)) {
+							const tip = html.match(/<div class=["']tip["'][^>]*>([\s\S]*?)<\/div>/i)
+							return uni.showModal({
+								title: '评论失败',
+								content: tip ? tip[1].replace(/<[^>]+>/g, '').trim() : '服务器返回失败',
+								showCancel: false
+							})
+						}
 						uni.showToast({
 							title: '评论成功',
 							icon: 'success'

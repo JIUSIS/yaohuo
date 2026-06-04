@@ -2,3 +2,27 @@ node_modules/
 unpackage/
 .hbuilderx/
 package-lock.json
+.DS_Store
+*.iml
+*.apk
+*.jks
+*.aar
+dist/
+tools/
+*.log
+
+# Local debug captures
+NetCSS_*
+gocaptcha-get-data.json
+yaohuo-login*.html
+sample-detail.html
+sample-replies.html
+
+# Android local build outputs and machine-local config
+local-android-build/.gradle/
+local-android-build/.idea/
+local-android-build/build/
+local-android-build/app/build/
+local-android-build/app/libs-full-backup/
+local-android-build/local.properties
+local-android-build/app/src/main/assets/apps/*/www/

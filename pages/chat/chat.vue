@@ -32,6 +32,10 @@
 	import {
 		cheerio
 	} from '@/utils/cheerio.js'
+	import {
+		getAuthHeader,
+		getAuthSid
+	} from '@/utils/auth.js'
 	export default {
 		data() {
 			return {
@@ -51,7 +55,7 @@
 					backurl: 'wapindex.aspx?siteid=1000&classid=0',
 					title: '',
 					touseridlist: '',
-					sid: uni.getStorageSync('cookie').split('=')[1],
+					sid: getAuthSid(),
 					g: ' 发 送 '
 				}
 			}
@@ -62,9 +66,7 @@
 			this.ajax.loadText = '正在获取消息';
 			uni.request({
 				url: `https://yaohuo.me/bbs/messagelist_view.aspx?id=${option.id}`,
-				header: {
-					'cookie': uni.getStorageSync('cookie')
-				},
+				header: getAuthHeader(),
 				success: (res) => {
 					let $ = cheerio.load(res.data)
 					let inputs = $('input')
@@ -139,8 +141,18 @@
 		},
 		methods: {
 			setPageScrollTo(selector) {
-				let view = uni.createSelectorQuery().in(this).select(selector);
+				let query = uni.createSelectorQuery().in(this);
+				if (!query || typeof query.select !== 'function') {
+					return
+				}
+				let view = query.select(selector);
+				if (!view) {
+					return
+				}
 				view.boundingClientRect((res) => {
+					if (!res) {
+						return
+					}
 					uni.pageScrollTo({
 						scrollTop: res.top,
 						duration: 300
@@ -161,10 +173,9 @@
 				uni.request({
 					method: 'POST',
 					url: 'https://yaohuo.me/bbs/messagelist_add.aspx',
-					header: {
-						'Content-Type': 'application/x-www-form-urlencoded',
-						cookie: uni.getStorageSync('cookie')
-					},
+					header: getAuthHeader({
+						'Content-Type': 'application/x-www-form-urlencoded'
+					}),
 					data: this.replyData,
 					success: (res) => {
 						uni.hideLoading();

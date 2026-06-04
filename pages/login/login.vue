@@ -11,11 +11,18 @@
 				<uni-easyinput type="password" v-model="formData.password" placeholder="请输入密码" />
 			</uni-forms-item>
 		</uni-forms>
-		<button @click="login" type="default" class="btn" :loading="loading" :disabled="loading">登录</button>
+		<button @click="openWebLogin" type="default" class="btn">网页登录</button>
+		<button @click="syncWebLogin" type="default" class="btn ghost">已登录，进入App</button>
+		<button @click="clearLogin" type="default" class="btn ghost">清除登录状态</button>
 	</view>
 </template>
 
 <script>
+	import {
+		getAuthCookieFromResponse,
+		setSystemCookie,
+		syncAuthCookieFromSystem
+	} from '@/utils/auth.js'
 	export default {
 		data() {
 			return {
@@ -26,11 +33,50 @@
 				loading: false
 			}
 		},
+		onShow() {
+			this.syncWebLogin(true)
+		},
 		methods: {
+			openWebLogin() {
+				uni.navigateTo({
+					url: `/pages/webview/webview?url=${encodeURIComponent('https://yaohuo.me/waplogin.aspx?fallback=1')}`
+				})
+			},
+			clearLogin() {
+				uni.removeStorageSync('cookie')
+				setSystemCookie('https://yaohuo.me', 'sidyaohuo=; expires=Thu, 01 Jan 1970 00:00:00 GMT;')
+				uni.showToast({
+					title: '已清除',
+					icon: 'none'
+				})
+			},
+			syncWebLogin(silent) {
+				const cookie = syncAuthCookieFromSystem()
+				if (!cookie) {
+					if (!silent) {
+						uni.showToast({
+							title: '还没检测到登录',
+							icon: 'none'
+						})
+					}
+					return
+				}
+				uni.showToast({
+					title: '登陆成功',
+					icon: 'success'
+				})
+				setTimeout(() => {
+					uni.redirectTo({
+						url: '/pages/index/index'
+					})
+				}, 500)
+			},
 			login() {
 				this.loading = true
+				const loginUrl = 'https://yaohuo.me/waplogin.aspx'
+				setSystemCookie('https://yaohuo.me', 'sidyaohuo=; expires=Thu, 01 Jan 1970 00:00:00 GMT;')
 				uni.request({
-					url: 'https://yaohuo.me/waplogin.aspx',
+					url: loginUrl,
 					method: 'POST',
 					header: {
 						'Content-Type': 'application/x-www-form-urlencoded',
@@ -47,36 +93,26 @@
 						remember: 1
 					},
 					success: (res) => {
-						console.log(res.header)
-						var cookie = ''
-						try {
-							cookie = res.header['Set-Cookie'].match(/sidyaohuo=(.*?);/)
-						} catch (e) {
+						const sidCookie = getAuthCookieFromResponse(res, 'https://yaohuo.me')
+						if (!sidCookie) {
 							let matchReg = /<div class=\"tip\">([\s\S]*)<\/div><body id=\"login\"/;
-							let tip = res.data.match(matchReg)
-							console.log(tip)
+							let tip = String(res.data || '').match(matchReg)
 							return uni.showToast({
-								title: tip[1],
+								title: tip && tip[1] ? tip[1] : '登录失败',
 								icon: 'error'
 							})
 						}
-						if (cookie && cookie.length) {
-							uni.setStorageSync('cookie', cookie[0])
-							uni.showToast({
-								title: '登陆成功',
-								icon: 'success'
+						uni.setStorageSync('cookie', sidCookie)
+						setSystemCookie('https://yaohuo.me', sidCookie)
+						uni.showToast({
+							title: '登陆成功',
+							icon: 'success'
+						})
+						setTimeout(() => {
+							uni.redirectTo({
+								url: '/pages/index/index'
 							})
-							setTimeout(() => {
-								uni.redirectTo({
-									url: '/pages/index/index'
-								})
-							}, 500)
-						} else {
-							uni.showToast({
-								title: '账号或密码错误',
-								icon: 'error'
-							})
-						}
+						}, 500)
 
 					},
 					fail: (err) => {
@@ -113,5 +149,10 @@
 			}
 		}
 
+	}
+
+	.ghost {
+		margin-top: 20rpx;
+		background-color: #666;
 	}
 </style>

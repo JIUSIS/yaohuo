@@ -1,9 +1,9 @@
 {
-    "name" : "妖火网客户端",
-    "appid" : "__UNI__22B7B30",
+    "name" : "妖火网",
+    "appid" : "__UNI__2B73CE2",
     "description" : "",
-    "versionName" : "1.0.3",
-    "versionCode" : 103,
+    "versionName" : "1.0",
+    "versionCode" : 1,
     "transformPx" : false,
     /* 5+App特有相关 */
     "app-plus" : {
@@ -156,5 +156,7 @@
         "uniStatistics" : {
             "enable" : false
         }
-    }
+    },
+    "locale" : "zh-Hans",
+    "fallbackLocale" : "zh-Hans"
 }

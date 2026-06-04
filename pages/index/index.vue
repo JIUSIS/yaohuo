@@ -1,5 +1,5 @@
 <template>
-	<view v-if="!loading">
+	<view>
 		<uni-notice-bar @click="trigger({index:1})" scrollable showGetMore showIcon background-color="#f3f3f3" color="#ff8800" single v-if="messageCountMatch" :text="'收到' + messageCountMatch + '封飞鸽传书'"></uni-notice-bar>
 
 		<uni-transition mode-class="fade" :duration="300" :show="true">
@@ -75,6 +75,10 @@
 	import {
 		idArr
 	} from '@/utils/yaohuo.js'
+	import {
+		getAuthHeader,
+		hasAuthCookie
+	} from '@/utils/auth.js'
 	export default {
 		data() {
 			return {
@@ -124,19 +128,24 @@
 			}
 		},
 		onReachBottom() {
-			this.$refs.postList.loadMore()
+			if (this.$refs.postList) {
+				this.$refs.postList.loadMore()
+			}
 		},
 		onPullDownRefresh() {
 			this.fetchData()
-			this.$refs.postList.refreshData()
+			if (this.$refs.postList) {
+				this.$refs.postList.refreshData()
+			}
 		},
 		onLoad() {
-			if (uni.getStorageSync('cookie')) {
+			if (hasAuthCookie(uni.getStorageSync('cookie'))) {
 				this.fetchData()
 			}
 		},
 		onShow() {
-			if (!uni.getStorageSync('cookie')) {
+			if (!hasAuthCookie(uni.getStorageSync('cookie'))) {
+				uni.removeStorageSync('cookie')
 				uni.redirectTo({
 					url: '/pages/login/login'
 				})
@@ -166,80 +175,49 @@
 				}
 			},
 			fetchData() {
+				this.loading = true
 				uni.request({
 					url: 'https://yaohuo.me/',
-					header: {
-						cookie: uni.getStorageSync('cookie')
-					},
+					header: getAuthHeader(),
 					success: (res) => {
-						let messageCountMatch = res.data.match(/收到(.*?)封飞鸽传书/)
-						this.messageCountMatch = 0
-						if (messageCountMatch) {
-							uni.setNavigationBarTitle({
-								title: `妖火网（${messageCountMatch[1]}条新消息）`
-							})
-							this.messageCountMatch = messageCountMatch[1]
-						} else {
-							uni.setNavigationBarTitle({
-								title: '妖火网'
-							})
-						}
-						const $ = cheerio.load(res.data)
-						const children = $('.list')[0].children
-						let newArr = []
-						children.forEach((child, index) => {
-							if (child.type === 'tag' && child.name === 'a' && newArr.length < 8) {
-								newArr.push({
-									id: child.attribs.href.split('-')[1].split('.')[0],
-									title: child.children[0].data
+						try {
+							const html = String(res.data || '')
+							let messageCountMatch = html.match(/收到(.*?)封飞鸽传书/)
+							this.messageCountMatch = 0
+							if (messageCountMatch) {
+								uni.setNavigationBarTitle({
+									title: `妖火网（${messageCountMatch[1]}条新消息）`
+								})
+								this.messageCountMatch = messageCountMatch[1]
+							} else {
+								uni.setNavigationBarTitle({
+									title: '妖火网'
 								})
 							}
-						})
-						this.newArr = newArr
-						//#ifdef APP-PLUS
-						const recommedC = $('.shouye')
-						let recommedArr = []
-						let first = recommedC[0]
-						recommedC.each(index => {
-							let first = recommedC[index].children[0]
-							let obj = {}
-							while (first) {
-								if (first.name === 'a') {
-									obj.title = first.children[0].data
-									obj.url = first.attribs.href[0] == '/' ?
-										`https://yaohuo.me${first.attribs.href}` : first.attribs.href
+							let newArr = []
+							const listMatch = html.match(/<div class=["']list["']>([\s\S]*?)<\/div>/i)
+							if (listMatch) {
+								const linkReg = /<a[^>]+href=["']([^"']*bbs-(\d+)\.html[^"']*)["'][^>]*>([\s\S]*?)<\/a>/ig
+								let linkMatch
+								while ((linkMatch = linkReg.exec(listMatch[1])) && newArr.length < 8) {
+									newArr.push({
+										id: linkMatch[2],
+										title: linkMatch[3].replace(/<[^>]+>/g, '')
+									})
 								}
-								if (first.name === 'img') {
-									obj.img = first.attribs.src[0] == '/' ?
-										`https://yaohuo.me${first.attribs.src}` : first.attribs.src
-								}
-								first = first.next
 							}
-							recommedArr.push(obj)
+							this.newArr = newArr
+							this.recommedArr = []
+							this.extraObj = {}
+						} catch (e) {}
+					},
+					fail: () => {
+						uni.showToast({
+							title: '首页加载失败',
+							icon: 'none'
 						})
-						this.recommedArr = recommedArr
-						const recommendExtra = $('.content')
-						if (recommendExtra.length) {
-							let extraObj = {}
-							extraObj.title = ''
-							let first = recommendExtra[0]
-							first.children.forEach(child => {
-								if (child.type == 'tag' && child.name == 'img') {
-									extraObj.img = child.attribs.src[0] == '/' ?
-										`https://yaohuo.me${child.attribs.src}` : child.attribs.src
-								}
-								if (child.type == 'tag' && child.name === 'a') {
-									extraObj.title += child.children[0].data
-									extraObj.url = child.attribs.href[0] == '/' ?
-										`https://yaohuo.me${child.attribs.href}` : child.attribs.href
-								}
-								if (child.type === 'text') {
-									extraObj.title += child.data
-								}
-							})
-							this.extraObj = extraObj
-						}
-						//#endif
+					},
+					complete: () => {
 						this.loading = false
 						uni.stopPullDownRefresh()
 					}
