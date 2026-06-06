@@ -9,7 +9,8 @@
 					<view class="item flex_col" :class=" item.type == 1 ? 'push':'pull' ">
 						<view class="content">
 							<mp-html :content="item.content" selectable lazy-load domain="https://yaohuo.me"
-								containerStyle="line-height:20px;word-break: break-all;font-size:15px"></mp-html>
+								containerStyle="line-height:20px;word-break: break-all;font-size:15px" :copyLink="false"
+								@linktap="linkTap"></mp-html>
 						</view>
 					</view>
 				</view>
@@ -45,6 +46,9 @@
 		normalizeHtmlUrls,
 		stripHtml
 	} from '@/utils/html.js'
+	import {
+		navigateToNativePost
+	} from '@/utils/route.js'
 
 	export default {
 		data() {
@@ -79,6 +83,18 @@
 				clearAuthCookie()
 				uni.redirectTo({
 					url: '/pages/login/login?clear=1'
+				})
+			},
+			linkTap(e) {
+				const href = absoluteYaohuoUrl(e && e.href)
+				if (!href) {
+					return
+				}
+				if (navigateToNativePost(href)) {
+					return
+				}
+				uni.navigateTo({
+					url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
 				})
 			},
 			parseChatMessages(html) {

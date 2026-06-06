@@ -3,10 +3,12 @@
 		{
 			"path": "pages/index/index",
 			"style": {
-				"navigationBarTitleText": "妖火网",
+				"navigationBarTitleText": "",
+				"navigationStyle": "custom",
 				"enablePullDownRefresh": true,
 				"app-plus": {
-					"bounce": "none"
+					"bounce": "none",
+					"titleNView": false
 				}
 			}
 		}, {
@@ -49,6 +51,15 @@
 				}
 			}
 		}, {
+			"path": "pages/mine/mine",
+			"style": {
+				"navigationBarTitleText": "我的地盘",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
 			"path": "pages/post/post",
 			"style": {
 				"navigationBarTitleText": "发帖",
@@ -80,7 +91,7 @@
 	],
 	"globalStyle": {
 		"navigationBarTextStyle": "black",
-		"navigationBarTitleText": "妖火网",
+		"navigationBarTitleText": "",
 		"navigationBarBackgroundColor": "#F8F8F8",
 		"backgroundColor": "#F8F8F8"
 	},

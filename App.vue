@@ -120,5 +120,18 @@
 	  display: flex;
 	  flex-direction: column;
 	}
+
+	uni-page[data-page="pages/index/index"]>uni-page-head,
+	uni-page[data-page="/pages/index/index"]>uni-page-head {
+		display: none !important;
+		height: 0 !important;
+		min-height: 0 !important;
+		overflow: hidden !important;
+	}
+
+	uni-page[data-page="pages/index/index"]>uni-page-head~uni-page-wrapper,
+	uni-page[data-page="/pages/index/index"]>uni-page-head~uni-page-wrapper {
+		height: 100% !important;
+	}
 	
 </style>

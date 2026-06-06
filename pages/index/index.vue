@@ -1,13 +1,29 @@
 <template>
 	<view>
-		<uni-notice-bar @click="trigger({index:1})" scrollable showGetMore showIcon background-color="#f3f3f3" color="#ff8800" single v-if="messageCountMatch" :text="'收到' + messageCountMatch + '封飞鸽传书'"></uni-notice-bar>
-
 		<uni-transition mode-class="fade" :duration="300" :show="true">
-			<view class="logo">
-				<image src="https://yaohuo.me/tupian/yaohuo.png"></image>
+			<view class="home-fixed-header">
+				<view class="home-topbar" @click="handleTopbarTap">
+					<view class="logo">
+						<image src="https://yaohuo.me/tupian/yaohuo.png"></image>
+					</view>
+					<view class="top-actions">
+						<view class="top-action" @click.stop="openMine">
+							<image src="/static/mine.png" mode="aspectFit"></image>
+							<text>我的</text>
+						</view>
+						<view class="top-action message-action" @click.stop="openMessage">
+							<image src="/static/message.png" mode="aspectFit"></image>
+							<text>消息</text>
+							<view v-if="messageCountMatch" class="message-badge">{{messageCountMatch}}</view>
+						</view>
+					</view>
+				</view>
+				<view class="home-search-row">
+					<uni-search-bar bgColor="#fff" radius="8" placeholder="善用搜索" clearButton="auto"
+						@confirm="search" @cancel="cancelSearch" />
+				</view>
 			</view>
-			<uni-search-bar bgColor="#fff" class="uni-mt-10" radius="8" placeholder="善用搜索" clearButton="auto"
-				@confirm="search" @cancel="cancelSearch" />
+			<view class="home-header-spacer"></view>
 			<view class="content">
 				<view class="grid">
 					<uni-grid :column="5" :showBorder="false" :square="false" :highlight="true" @change="gridChange">
@@ -52,15 +68,13 @@
 							</view>
 						</uni-col>
 					</uni-row>
-					<view style="position: absolute;top: 20rpx;right: 20rpx;" class="" @click="goToRecommend(extraObj)">
+					<view v-if="extraObj && extraObj.url" style="position: absolute;top: 20rpx;right: 20rpx;" class="" @click="goToRecommend(extraObj)">
 						<image class="img" :src="extraObj.img"></image>
 						{{extraObj.title}}
 					</view>
 				</view>
 				<!-- #endif -->
 			</view>
-			<uni-fab ref="fab" :pattern="pattern" :content="content" :horizontal="horizontal" :vertical="vertical"
-				:direction="direction" @trigger="trigger" />
 			<post-list style="margin-top: 10rpx;" ref="postList" @login-invalid="goLogin"></post-list>
 		</uni-transition>
 
@@ -70,17 +84,22 @@
 <script>
 	import UniSection from '@/components/uni-section/components/uni-section/uni-section'
 	import {
-		cheerio
-	} from '@/utils/cheerio.js'
-	import {
 		idArr
 	} from '@/utils/yaohuo.js'
+	import {
+		absoluteYaohuoUrl,
+		getAttr,
+		stripHtml
+	} from '@/utils/html.js'
 	import {
 		clearAuthCookie,
 		getAuthHeader,
 		isLoginRequiredHtml,
 		verifyAuthCookie
 	} from '@/utils/auth.js'
+	import {
+		navigateToNativePost
+	} from '@/utils/route.js'
 	export default {
 		data() {
 			return {
@@ -101,36 +120,11 @@
 				newArr: [],
 				recommedArr: [],
 				extraObj: {},
-				directionStr: '垂直',
-				horizontal: 'right',
-				vertical: 'bottom',
-				direction: 'vertical',
-				pattern: {
-					color: '#7A7E83',
-					backgroundColor: '#fff',
-					selectedColor: '#07c160',
-					buttonColor: '#07c160',
-					iconColor: '#fff'
-				},
-				content: [{
-						iconPath: '/static/mine.png',
-						selectedIconPath: '/static/mine.png',
-						text: '我的'
-					},
-					{
-						iconPath: '/static/message.png',
-						selectedIconPath: '/static/message.png',
-						text: '消息'
-					}, {
-						iconPath: '/static/refresh.png',
-						selectedIconPath: '/static/refresh.png',
-						text: '刷新'
-					}
-				],
 				messageCountMatch: 0,
 				checkingAuth: false,
 				redirectingLogin: false,
-				hasFetchedHome: false
+				hasFetchedHome: false,
+				lastTopbarTapAt: 0
 			}
 		},
 		onReachBottom() {
@@ -145,12 +139,38 @@
 			}
 		},
 		onLoad() {
+			this.hideNativeNavigationBar()
 			this.checkAuthAndFetch()
 		},
+		onReady() {
+			this.hideNativeNavigationBar()
+		},
 		onShow() {
+			this.hideNativeNavigationBar()
 			this.checkAuthAndFetch()
 		},
 		methods: {
+			hideNativeNavigationBar() {
+				try {
+					const applyStyle = () => {
+						const currentWebview = this.$scope && this.$scope.$getAppWebview ?
+							this.$scope.$getAppWebview() :
+							(typeof plus !== 'undefined' && plus.webview ? plus.webview.currentWebview() : null)
+						if (currentWebview && currentWebview.setStyle) {
+							currentWebview.setStyle({
+								titleNView: false
+							})
+						}
+					}
+					if (typeof plus !== 'undefined' && plus.webview) {
+						applyStyle()
+					} else if (typeof document !== 'undefined') {
+						document.addEventListener('plusready', applyStyle, false)
+					}
+				} catch (err) {
+					console.log('HIDE_HOME_NATIVE_NAV_FAIL', err)
+				}
+			},
 			checkAuthAndFetch() {
 				if (this.redirectingLogin || this.checkingAuth) {
 					return
@@ -216,16 +236,56 @@
 				})
 			},
 			goToRecommend(item) {
-				if (item.url.indexOf('/bbs/') > -1) {
-					let id = item.url.split('-')[1].split('.')[0]
-					uni.navigateTo({
-						url: `/pages/detail/detail?id=${id}`
-					})
-				} else {
-					uni.navigateTo({
-						url: `/pages/webview/webview?url=${item.url}`
+				if (!item || !item.url) {
+					return
+				}
+				const url = absoluteYaohuoUrl(item.url)
+				if (navigateToNativePost(url)) {
+					return
+				}
+				uni.navigateTo({
+					url: `/pages/webview/webview?url=${encodeURIComponent(url)}`
+				})
+			},
+			parseHomeAds(html) {
+				const block = this.extractHomeAdBlock(html)
+				if (!block) {
+					return []
+				}
+				const result = []
+				const seen = {}
+				const divReg = /<div\b[^>]*>[\s\S]*?<\/div>/ig
+				let divMatch
+				while ((divMatch = divReg.exec(block)) && result.length < 6) {
+					const itemHtml = divMatch[0]
+					const linkTagMatch = itemHtml.match(/<a\b[^>]*href\s*=\s*(["'])[\s\S]*?\1[^>]*>/i)
+					const imgTagMatch = itemHtml.match(/<img\b[^>]*>/i)
+					if (!linkTagMatch || !imgTagMatch) {
+						continue
+					}
+					const url = absoluteYaohuoUrl(getAttr(linkTagMatch[0], 'href'))
+					const img = absoluteYaohuoUrl(getAttr(imgTagMatch[0], 'src'))
+					const title = stripHtml(itemHtml).replace(/\s+/g, ' ').trim()
+					if (!url || !title || seen[url]) {
+						continue
+					}
+					seen[url] = true
+					result.push({
+						title,
+						url,
+						img
 					})
 				}
+				return result
+			},
+			extractHomeAdBlock(html) {
+				html = String(html || '')
+				const welcomeMatch = html.match(/<div\b[^>]*class\s*=\s*(["'])[^"']*\bwelcome\b[^"']*\1[^>]*>[\s\S]*?<\/div>/i)
+				const start = welcomeMatch ? welcomeMatch.index + welcomeMatch[0].length : 0
+				const rest = html.slice(start)
+				const titleMatch = rest.match(/<div\b[^>]*class\s*=\s*(["'])[^"']*\btitle\b[^"']*\1[^>]*>/i)
+				const end = titleMatch ? start + titleMatch.index : Math.min(html.length, start + 5000)
+				return html.slice(start, end)
 			},
 			fetchData() {
 				this.loading = true
@@ -264,7 +324,7 @@
 								}
 							}
 							this.newArr = newArr
-							this.recommedArr = []
+							this.recommedArr = this.parseHomeAds(html)
 							this.extraObj = {}
 						} catch (e) {}
 					},
@@ -290,7 +350,7 @@
 			search(e) {
 				this.page = 1
 				this.searchContent = e.value
-				let url = `https://yaohuo.me/bbs/book_list.aspx?action=search&type=title&key=${encodeURIComponent(this.searchContent || '')}`
+				let url = `https://yaohuo.me/bbs/book_list_search.aspx?key=${encodeURIComponent(this.searchContent || '')}&type=title&classid=0&action=search`
 				uni.navigateTo({
 					url: `/pages/bbsList/bbsList?url=${encodeURIComponent(JSON.stringify({url}))}`
 				})
@@ -302,23 +362,27 @@
 				this.page = 1
 				this.fetchData()
 			},
-			async trigger(e) {
-				if (e.index === 1) {
-					uni.navigateTo({
-						url: '/pages/message/message'
-					})
-				} else if (e.index === 0) {
-					uni.navigateTo({
-						url: '/pages/webview/webview?url=https://yaohuo.me/myfile.aspx'
-					})
-				} else {
+			handleTopbarTap() {
+				const now = Date.now()
+				if (now - this.lastTopbarTapAt < 350) {
+					this.lastTopbarTapAt = 0
 					uni.pageScrollTo({
-						scrollTop: 0
+						scrollTop: 0,
+						duration: 250
 					})
-					uni.startPullDownRefresh({
-
-					})
+					return
 				}
+				this.lastTopbarTapAt = now
+			},
+			openMine() {
+				uni.navigateTo({
+					url: '/pages/mine/mine'
+				})
+			},
+			openMessage() {
+				uni.navigateTo({
+					url: '/pages/message/message'
+				})
 			}
 		}
 	}
@@ -329,18 +393,102 @@
 	}
 </style>
 <style lang="scss" scoped>
+	.home-fixed-header {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		z-index: 99;
+		background-color: #F3F3F3;
+		padding-top: var(--status-bar-height);
+		padding-bottom: 10rpx;
+		box-sizing: border-box;
+	}
+
+	.home-topbar {
+		height: 92rpx;
+		padding: 0 20rpx;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		box-sizing: border-box;
+	}
+
+	.home-search-row {
+		padding: 0 8rpx;
+	}
+
+	.home-header-spacer {
+		height: calc(var(--status-bar-height) + 188rpx);
+	}
+
 	.logo {
-		text-align: center;
-		margin: 20rpx 0 10rpx;
+		height: 70rpx;
+		display: flex;
+		align-items: center;
 
 		image {
-			width: 180px;
-			height: 61px;
+			width: 150px;
+			height: 51px;
+			display: block;
 		}
 	}
 
+	.top-actions {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 18rpx;
+		flex: 0 0 auto;
+		margin-left: 12rpx;
+	}
+
+	.top-action {
+		position: relative;
+		height: 56rpx;
+		padding: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-sizing: border-box;
+
+		image {
+			width: 36rpx;
+			height: 36rpx;
+			margin-right: 6rpx;
+			display: block;
+		}
+
+		text {
+			color: #333;
+			font-size: 13px;
+			line-height: 1;
+			white-space: nowrap;
+		}
+	}
+
+	.message-badge {
+		position: absolute;
+		top: -10rpx;
+		right: -14rpx;
+		min-width: 30rpx;
+		height: 30rpx;
+		padding: 0 8rpx;
+		border-radius: 15rpx;
+		background: #ff4d4f;
+		color: #fff;
+		font-size: 10px;
+		line-height: 30rpx;
+		text-align: center;
+		box-sizing: border-box;
+		max-width: 72rpx;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.content {
-		padding: 10rpx 20rpx 0;
+		padding: 16rpx 20rpx 0;
 
 
 		.recomment-card {
@@ -370,9 +518,22 @@
 		border-radius: 8px;
 	}
 
+	::v-deep .grid .uni-grid-wrap,
+	::v-deep .grid .uni-grid {
+		border-radius: 8px;
+		overflow: hidden;
+		background-color: #fff;
+	}
+
+	::v-deep .grid .uni-grid-item__box {
+		background-color: #fff;
+	}
+
 	.grid {
 		background-color: #fff;
 		border-radius: 8px;
+		overflow: hidden;
+		box-sizing: border-box;
 
 		.image {
 			width: 25px;

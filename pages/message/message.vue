@@ -34,6 +34,9 @@
 		getAttr,
 		stripHtml
 	} from '@/utils/html.js'
+	import {
+		navigateToNativePost
+	} from '@/utils/route.js'
 
 	export default {
 		data() {
@@ -105,13 +108,13 @@
 				if (!message) {
 					return
 				}
+				if (message.href) {
+					return this.openMessageHref(message.href)
+				}
 				if (message.id) {
 					return uni.navigateTo({
 						url: `/pages/chat/chat?id=${message.id}&user=${encodeURIComponent(message.from || '')}`
 					})
-				}
-				if (message.href) {
-					return this.openMessageHref(message.href)
 				}
 				return uni.showToast({
 					title: '这条是系统通知',
@@ -132,17 +135,13 @@
 			},
 			openMessageHref(href) {
 				const url = absoluteYaohuoUrl(href)
-				const postMatch = url.match(/\/bbs-(\d+)\.html/i) ||
-					url.match(/\/bbs\/book_(?:view|re)\.aspx[^#]*[?&]id=(\d+)/i)
-				if (postMatch) {
-					const classId = this.getQueryValue(url, 'classid')
-					return uni.navigateTo({
-						url: `/pages/detail/detail?id=${postMatch[1]}${classId ? `&classid=${classId}` : ''}`
-					})
+				if (navigateToNativePost(url)) {
+					return true
 				}
 				uni.navigateTo({
 					url: `/pages/webview/webview?url=${encodeURIComponent(url)}`
 				})
+				return true
 			},
 			getMessageDeleteUrl(message) {
 				if (!message) {
@@ -174,7 +173,10 @@
 						continue
 					}
 					if (/messagelist_view\.aspx/i.test(href)) {
-						return href
+						if (!fallback) {
+							fallback = href
+						}
+						continue
 					}
 					if (!postHref && /\/?bbs-(\d+)\.html|\/bbs\/book_(?:view|re)\.aspx/i.test(href)) {
 						postHref = href

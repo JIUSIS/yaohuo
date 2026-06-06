@@ -116,6 +116,9 @@
 		getAttr,
 		normalizeHtmlUrls
 	} from '@/utils/html.js'
+	import {
+		navigateToNativePost
+	} from '@/utils/route.js'
 	export default {
 		data() {
 			return {
@@ -624,16 +627,14 @@
 						urls: [imageUrl]
 					})
 				} else {
-					const postMatch = href.match(/\/bbs-(\d+)\.html/i)
-					if (!postMatch) {
-						uni.navigateTo({
-							url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
-						})
-					} else {
-						uni.navigateTo({
-							url: `/pages/detail/detail?id=${postMatch[1]}`
-						})
+					if (navigateToNativePost(href, {
+							classid: this.info.classId
+						})) {
+						return
 					}
+					uni.navigateTo({
+						url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
+					})
 				}
 			},
 			htmlMediaError(e) {
@@ -1518,6 +1519,38 @@
 				const separator = colon || '：'
 				return `<span style="color:#777;">${this.escapeHtml(target)}${this.escapeHtml(separator)}</span>`
 			},
+			extractReplyRewardText(block) {
+				const source = this.decodeReplyAttr(String(block || ''))
+				const blocks = this.extractClassBlocksByToken(source, 'remoney').concat(this.extractClassBlocksByToken(source,
+					'replyother-offset'))
+				for (let i = 0; i < blocks.length; i++) {
+					const item = blocks[i]
+					const text = this.cleanPostMetaText(this.stripHtml(item))
+					if (!/(得金|礼金|获赏|赏|奖励|[+＋]\s*\d+)/.test(text)) {
+						continue
+					}
+					const classNumber = this.extractRewardClassNumber(item, ['rewardnumber'])
+					const match = text.replace(/,/g, '').match(/(?:得金|礼金|获赏|赏金|奖励|[+＋])\s*([+-]?\d+)/)
+					const number = classNumber || this.normalizeRewardNumber(match && match[1] || '')
+					if (!number) {
+						continue
+					}
+					let label = '奖励'
+					if (/得金/.test(text)) {
+						label = '得金'
+					} else if (/礼金/.test(text)) {
+						label = '礼金'
+					} else if (/获赏/.test(text)) {
+						label = '获赏'
+					} else if (/[+＋]\s*\d+/.test(text)) {
+						label = ''
+					}
+					const displayNumber = /[+＋]\s*\d+/.test(text) && number.charAt(0) !== '-' ?
+						`+${number.replace(/^\+/, '')}` : number
+					return label ? `${label} ${displayNumber}` : displayNumber
+				}
+				return ''
+			},
 			extractReplyActions(block) {
 				const actions = []
 				const seen = {}
@@ -1906,6 +1939,7 @@
 						avatar: this.getCachedReplyAvatar(replyUser.id),
 						time: timeMatch ? this.stripHtml(timeMatch[1]) : '',
 						text: replyTarget + replyText + replyMedia,
+						rewardText: this.extractReplyRewardText(block),
 						images: [],
 						remanage: this.extractReplyActions(block),
 						_imageUrls: nativeImages,
@@ -2017,10 +2051,79 @@
 					.replace(/^[\s:：,，.。;；|\-—_\[\]【】()（）]+|[\s:：,，.。;；|\-—_\[\]【】()（）]+$/g, '')
 					.trim()
 			},
+			normalizeRewardNumber(text) {
+				const match = String(text || '').replace(/,/g, '').match(/[+-]?\d+/)
+				if (!match) {
+					return ''
+				}
+				return match[0].replace(/^0+(?=\d)/, '')
+			},
+			extractRewardClassNumber(html, classNames) {
+				for (let i = 0; i < classNames.length; i++) {
+					const number = this.normalizeRewardNumber(this.extractClassText(html, classNames[i]))
+					if (number) {
+						return number
+					}
+				}
+				return ''
+			},
+			extractRewardStatusText(text) {
+				const match = String(text || '').match(/(已结束|已关闭|已解决|未解决|待解决|已采纳|未采纳|悬赏中|进行中|已结帖|未结帖)/)
+				if (!match) {
+					return ''
+				}
+				if (match[1] === '已结帖') {
+					return '已结束'
+				}
+				if (match[1] === '未结帖') {
+					return '进行中'
+				}
+				return match[1]
+			},
+			getRewardStatus(type, total, used, remain, text) {
+				if (type === 'gift' && remain !== '') {
+					return Number(remain) <= 0 ? '已结束' : '进行中'
+				}
+				if (type === 'bounty' && total !== '' && used !== '') {
+					return Number(used) >= Number(total) ? '已结束' : '进行中'
+				}
+				const textStatus = this.extractRewardStatusText(text)
+				if (textStatus) {
+					return textStatus
+				}
+				return ''
+			},
+			extractGiftTotalNumber(block, each, remain) {
+				const direct = this.extractRewardClassNumber(block, [
+					'paibishuzi',
+					'paibishuliang',
+					'lijinshuzi',
+					'giftshuzi',
+					'zongshuzi',
+					'zongjine'
+				])
+				if (direct) {
+					return direct
+				}
+				const numbers = this.cleanPostMetaText(this.stripHtml(block)).replace(/,/g, '').match(/[+-]?\d+/g) || []
+				const skipped = {}
+				if (each !== '') {
+					skipped[each] = true
+				}
+				if (remain !== '') {
+					skipped[remain] = true
+				}
+				for (let i = 0; i < numbers.length; i++) {
+					const number = this.normalizeRewardNumber(numbers[i])
+					if (number && !skipped[number]) {
+						return number
+					}
+				}
+				return ''
+			},
 			extractPostRewardInfo(html) {
 				const source = this.decodeReplyAttr(String(html || ''))
 				const header = this.extractPostHeaderHtml(source)
-				const headerText = this.stripHtml(header)
 				const tags = []
 				const seen = {}
 				const addTag = (text, type) => {
@@ -2028,7 +2131,7 @@
 					if (!text || text.length > 48 || seen[text]) {
 						return
 					}
-					if (/^(首页|论坛|返回|发帖|搜索|全部回帖|楼主|标题|浏览|时间)/.test(text)) {
+					if (/^(首页|论坛|返回|发帖|搜索|全部回帖|楼主|标题|浏览|时间|获赏)/.test(text)) {
 						return
 					}
 					if (/悬赏问答/.test(text) && !/(礼金|获赏|妖晶|金币|币|\d+|解决|采纳|结帖|结束|关闭|状态)/.test(text)) {
@@ -2040,39 +2143,59 @@
 						type: type || (/礼金/.test(text) ? 'gift' : /获赏|赏/.test(text) ? 'bounty' : 'reward')
 					})
 				}
-				this.extractClassBlocksByToken(header, 'post-badge').forEach(block => {
-					addTag(this.stripHtml(block), 'bounty')
-				})
-				this.extractClassBlocksByToken(header, 'earnbounty').forEach(block => {
-					const amount = this.stripHtml(block).match(/\d+/)
-					if (amount) {
-						addTag(`获赏${amount[0]}`, 'bounty')
-					}
-				})
-				const compact = this.cleanPostMetaText(headerText)
-				const amountPatterns = [
-					/(悬赏\s*(?:金额|妖晶|金币|币)?\s*[:：]?\s*[+-]?\d+\s*(?:妖晶|金币|币)?)/g,
-					/(礼金\s*(?:金额|妖晶|金币|币)?\s*[:：]?\s*[+-]?\d+\s*(?:妖晶|金币|币)?)/g,
-					/(获赏\s*[+-]?\d+\s*(?:妖晶|金币|币)?)/g
-				]
-				amountPatterns.forEach(reg => {
-					let match
-					while ((match = reg.exec(compact))) {
-						addTag(match[1])
-					}
-				})
-				compact.split(/[\n。；;]/).forEach(line => {
-					line = this.cleanPostMetaText(line)
-					if (!line || !/(悬赏|礼金|获赏)/.test(line)) {
-						return
-					}
-					const important = line.match(/.{0,8}(?:悬赏|礼金|获赏).{0,28}/)
-					addTag(important ? important[0] : line)
-				})
+				const notificationText = this.cleanPostMetaText(this.extractClassText(header, 'notification-text'))
 				let status = ''
-				const statusMatch = compact.match(/(已解决|未解决|待解决|已采纳|未采纳|悬赏中|已结帖|未结帖|已结束|已关闭|进行中)/)
-				if (statusMatch && (/(悬赏|礼金|获赏|解决|采纳)/.test(compact) || tags.length)) {
-					status = statusMatch[1]
+				this.extractClassBlocksByToken(header, 'xuanshang').forEach(block => {
+					const blockText = this.cleanPostMetaText(this.stripHtml(block))
+					const total = this.extractRewardClassNumber(block, ['xuanshangshuzi']) ||
+						this.normalizeRewardNumber((blockText.match(/悬赏\s*([+-]?\d+)/) || [])[1])
+					const used = this.extractRewardClassNumber(block, ['yishangshuzi'])
+					if (total) {
+						addTag(`悬赏 ${total}`, 'reward')
+					}
+					if (used) {
+						addTag(`已赏 ${used}`, 'bounty')
+					}
+					status = status || this.getRewardStatus('bounty', total, used, '', blockText)
+				})
+				this.extractClassBlocksByToken(header, 'paibi').forEach(block => {
+					const blockText = this.cleanPostMetaText(this.stripHtml(block))
+					const each = this.extractRewardClassNumber(block, ['meirenshuzi'])
+					const remain = this.extractRewardClassNumber(block, ['yushuzi'])
+					const total = this.extractGiftTotalNumber(block, each, remain)
+					if (total) {
+						addTag(`礼金 ${total}`, 'gift')
+					}
+					if (each) {
+						addTag(`每人 ${each}`, 'gift')
+					}
+					if (remain) {
+						addTag(`余 ${remain}`, 'gift')
+					}
+					status = status || this.getRewardStatus('gift', total, '', remain, blockText)
+				})
+				if (!tags.length && notificationText) {
+					let match = notificationText.match(/悬赏\s*([+-]?\d+)/)
+					if (match) {
+						addTag(`悬赏 ${this.normalizeRewardNumber(match[1])}`, 'reward')
+						status = status || this.getRewardStatus('bounty', this.normalizeRewardNumber(match[1]), '', '',
+							notificationText)
+					}
+					match = notificationText.match(/礼金\s*([+-]?\d+)(?:\s*每人\s*([+-]?\d+))?(?:\s*[（(]?\s*余\s*([+-]?\d+)\s*[)）]?)?/)
+					if (match) {
+						addTag(`礼金 ${this.normalizeRewardNumber(match[1])}`, 'gift')
+						if (match[2]) {
+							addTag(`每人 ${this.normalizeRewardNumber(match[2])}`, 'gift')
+						}
+						if (match[3]) {
+							addTag(`余 ${this.normalizeRewardNumber(match[3])}`, 'gift')
+						}
+						status = status || this.getRewardStatus('gift', this.normalizeRewardNumber(match[1]), '',
+							this.normalizeRewardNumber(match[3] || ''), notificationText)
+					}
+				}
+				if (!status && !tags.length) {
+					status = this.extractRewardStatusText(notificationText)
 				}
 				const extra = tags.map(item => item.text).join(' | ')
 				return {
@@ -2082,7 +2205,7 @@
 				}
 			},
 			logPostRewardMeta(html, rewardInfo) {
-				const hasRewardWords = /(悬赏|礼金|获赏|earnbounty|post-badge|已解决|未解决|已采纳|悬赏中)/i.test(String(html ||
+				const hasRewardWords = /(悬赏|礼金|已赏|得金|xuanshang|paibi|remoney|rewardnumber|已解决|未解决|已采纳|悬赏中)/i.test(String(html ||
 					''))
 				if (!hasRewardWords && String(this.info.postId || '') !== '1543161') {
 					return

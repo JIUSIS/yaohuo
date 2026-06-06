@@ -38,8 +38,12 @@
 		extractClassBlocks,
 		stripHtml
 	} from '@/utils/html.js'
+	import {
+		navigateToNativePost
+	} from '@/utils/route.js'
 
 	const DEFAULT_URL = 'https://yaohuo.me/bbs/book_list.aspx?gettotal=2022&action=new'
+	const YAOHUO_ORIGIN = 'https://yaohuo.me'
 	const PAGE_SIZE = 15
 
 	export default {
@@ -54,6 +58,7 @@
 				posts: [],
 				page: 1,
 				totalPage: 1,
+				nextPageUrl: '',
 				status: 'more',
 				canFresh: true,
 				isLoading: false,
@@ -90,6 +95,66 @@
 				const replaced = base.replace(/([?&])page=[^&#]*/i, `$1page=${page}`)
 				return replaced === base ? `${base}${base.indexOf('?') > -1 ? '&' : '?'}page=${page}` : replaced
 			},
+			getRequestUrl(page) {
+				if (page > 1 && this.nextPageUrl) {
+					return this.nextPageUrl
+				}
+				return this.buildPageUrl(this.getBaseUrl(), page)
+			},
+			resolvePageUrl(href, baseUrl) {
+				href = decodeHtml(String(href || '')).trim()
+				baseUrl = String(baseUrl || this.getBaseUrl() || '')
+				if (!href) {
+					return ''
+				}
+				if (/^https?:\/\//i.test(href)) {
+					return href
+				}
+				if (href.indexOf('//') === 0) {
+					return 'https:' + href
+				}
+				if (href[0] === '/') {
+					return YAOHUO_ORIGIN + href
+				}
+				const cleanBase = baseUrl.split('#')[0]
+				const basePath = cleanBase.split('?')[0]
+				if (href[0] === '?') {
+					return basePath + href
+				}
+				const dir = basePath.replace(/\/[^/]*$/, '/')
+				return dir + href.replace(/^\.?\//, '')
+			},
+			getUrlPage(url) {
+				const match = String(url || '').match(/[?&]page=(\d{1,6})/i)
+				return match ? Number(match[1]) : 0
+			},
+			extractNextPageUrl(resData, requestUrl) {
+				const html = String(resData || '')
+				const currentPage = this.page || 1
+				const candidates = []
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let match
+				while ((match = reg.exec(html))) {
+					const href = decodeHtml(match[2])
+					if (!/[?&]page=\d{1,6}/i.test(href)) {
+						continue
+					}
+					const url = this.resolvePageUrl(href, requestUrl)
+					if (!/\/bbs\/(?:book_list_search|book_list|list)\.aspx/i.test(url)) {
+						continue
+					}
+					const page = this.getUrlPage(url)
+					if (page > currentPage) {
+						candidates.push({
+							page,
+							url
+						})
+					}
+				}
+				candidates.sort((a, b) => a.page - b.page)
+				const next = candidates.find(item => item.page === currentPage + 1) || candidates[0]
+				return next ? next.url : ''
+			},
 			loadMore() {
 				if (this.isLoading || this.status === 'noMore' || this.page >= this.totalPage) {
 					return
@@ -102,6 +167,7 @@
 				this.canFresh = false
 				this.page = 1
 				this.totalPage = 1
+				this.nextPageUrl = ''
 				this.status = 'more'
 				this.posts = []
 				setTimeout(() => {
@@ -114,7 +180,7 @@
 					return
 				}
 				const requestedPage = this.page || 1
-				const requestUrl = this.buildPageUrl(this.getBaseUrl(), requestedPage)
+				const requestUrl = this.getRequestUrl(requestedPage)
 				if (!requestUrl) {
 					return
 				}
@@ -142,7 +208,7 @@
 								icon: 'error'
 							})
 						}
-						this.handleSimpleData(html)
+						this.handleSimpleData(html, requestUrl)
 					},
 					fail: () => {
 						if (requestedPage > 1) {
@@ -175,13 +241,9 @@
 			},
 			goToDetail(url) {
 				if (uni.getStorageSync('cookie')) {
-					const idMatch = String(url || '').match(/bbs-(\d+)\.html/i)
-					if (!idMatch) {
-						return
-					}
 					const classId = this.getListClassId()
-					uni.navigateTo({
-						url: `/pages/detail/detail?id=${idMatch[1]}${classId ? '&classid=' + classId : ''}`
+					navigateToNativePost(url, {
+						classid: classId
 					})
 				} else {
 					uni.showModal({
@@ -357,15 +419,7 @@
 				if (getTotalMatch) {
 					return Math.max(1, Math.ceil(Number(getTotalMatch[1]) / PAGE_SIZE))
 				}
-				const pages = []
-				html.replace(/[?&]page=(\d{1,6})/ig, (all, page) => {
-					const num = Number(page)
-					if (num > 0) {
-						pages.push(num)
-					}
-					return all
-				})
-				return pages.length ? Math.max.apply(null, pages) : 0
+				return 0
 			},
 			mergePosts(posts) {
 				if (this.page === 1) {
@@ -389,16 +443,26 @@
 				this.posts = this.posts.concat(freshPosts)
 				return freshPosts.length
 			},
-			handleSimpleData(resData) {
+			handleSimpleData(resData, requestUrl) {
 				const posts = this.parsePosts(String(resData || ''))
 				const freshCount = this.mergePosts(posts)
 				const parsedTotalPage = this.parseTotalPage(resData)
+				this.nextPageUrl = this.extractNextPageUrl(resData, requestUrl)
 				if (parsedTotalPage) {
 					this.totalPage = Math.max(parsedTotalPage, this.page)
 				} else {
-					this.totalPage = freshCount > 0 ? this.page + 1 : this.page
+					this.totalPage = (this.nextPageUrl || freshCount > 0) ? this.page + 1 : this.page
 				}
 				this.status = this.page < this.totalPage ? 'more' : 'noMore'
+				console.log('[YAOHUO_POST_LIST_PAGE]', JSON.stringify({
+					page: this.page,
+					count: posts.length,
+					freshCount,
+					totalPage: this.totalPage,
+					status: this.status,
+					requestUrl,
+					nextPageUrl: this.nextPageUrl
+				}))
 			}
 		}
 	}

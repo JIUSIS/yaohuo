@@ -108,10 +108,17 @@ function findTagEnd(html, tag, fromIndex) {
 export function normalizeHtmlUrls(html) {
 	return String(html || '')
 		.replace(/\s(src|href)=([\"'])([^\"']+)\2/ig, (all, attr, quote, url) => {
-			if (attr.toLowerCase() === 'href' && /bbs\/book_view\.aspx/i.test(url)) {
-				const idMatch = decodeHtml(url).match(/[?&]id=(\d+)/i)
-				if (idMatch) {
-					return ` ${attr}=${quote}/pages/detail/detail?id=${idMatch[1]}${quote}`
+			if (attr.toLowerCase() === 'href') {
+				const decodedUrl = decodeHtml(url)
+				const htmlPostMatch = decodedUrl.match(/(?:^|\/)bbs-(\d+)\.html/i)
+				const idMatch = decodedUrl.match(/[?&]id=(\d+)/i)
+				const classIdMatch = decodedUrl.match(/[?&]classid=(\d+)/i)
+				const actionMatch = decodedUrl.match(/[?&]action=([^&#]*)/i)
+				const action = actionMatch ? actionMatch[1].toLowerCase() : ''
+				const canOpenNative = !action || action === 'class' || action === 'view' || action === 'list'
+				const postId = htmlPostMatch ? htmlPostMatch[1] : (/bbs\/book_(?:view|re)\.aspx/i.test(decodedUrl) && canOpenNative && idMatch ? idMatch[1] : '')
+				if (postId) {
+					return ` ${attr}=${quote}/pages/detail/detail?id=${postId}${classIdMatch ? '&classid=' + classIdMatch[1] : ''}${quote}`
 				}
 			}
 			return ` ${attr}=${quote}${absoluteYaohuoUrl(url)}${quote}`

@@ -8,14 +8,17 @@
 				</uni-col>
 				<uni-col :span="12">
 					<view class="text-right">
+						<button class="comment-order-btn" size="mini" @click="toggleCommentOrder">
+							{{commentOrder === 'asc' ? '正序' : '倒序'}}
+						</button>
 						<uni-icons class="refresh-comment-icon" @click="$emit('fetchReply',1)"
 							style="vertical-align: -5px;" type="refreshempty" size="20"></uni-icons>
 					</view>
 				</uni-col>
 			</uni-row>
 			<view class="uni-comment">
-				<view style="border-bottom:  1px dashed #dcdcdc;" class="uni-comment-list" v-for="(comment,index) in comments" :key="index">
-					<view class="uni-comment-face" @click="goToUserArea(index)">
+				<view style="border-bottom:  1px dashed #dcdcdc;" class="uni-comment-list" v-for="(comment,index) in displayComments" :key="getCommentKey(comment,index)">
+					<view class="uni-comment-face" @click="goToUserArea(comment)">
 						<image v-if="comment.avatar" class="comment-avatar" :src="comment.avatar" mode="aspectFill"
 							@error="nativeImageError(comment.avatar,$event)"></image>
 						<view class="floor" :class="{'floor-badge': comment.avatar}">
@@ -24,15 +27,16 @@
 					</view>
 					<view class="uni-comment-body">
 						<view class="uni-comment-top">
-							<text @click="goToUserArea(index)">{{comment.user}}</text>
+							<text @click="goToUserArea(comment)">{{comment.user}}</text>
+							<text v-if="comment.rewardText" class="comment-reward-chip">{{comment.rewardText}}</text>
 						</view>
 						<view class="uni-comment-date">
 							<text>{{comment.time}}</text>
 							<view class="flex">
 								<view class="uni-comment-reply-btn danger" v-if="comment.remanage && comment.remanage.length"
-									v-for="item in comment.remanage" @click="CommentOption(index, item)">删除
+									v-for="item in comment.remanage" @click="CommentOption(comment, item)">删除
 								</view>
-								<view class="uni-comment-reply-btn" v-if="!postInfo.isEnd" @click="replyToFloor(index)">回复
+								<view class="uni-comment-reply-btn" v-if="!postInfo.isEnd" @click="replyToFloor(comment)">回复
 								</view>
 							</view>
 						</view>
@@ -100,6 +104,9 @@
 	import {
 		getAuthHeader
 	} from '@/utils/auth.js'
+	import {
+		navigateToNativePost
+	} from '@/utils/route.js'
 	export default {
 		name: 'comment',
 		props: {
@@ -125,6 +132,7 @@
 				loading: false,
 				isReplyFloor: false,
 				replyModalShow: false,
+				commentOrder: 'asc',
 				replyData: {
 					face: '',
 					content: '',
@@ -144,6 +152,18 @@
 			},
 			selectedFace() {
 				return this.array[this.faceIndex] && this.array[this.faceIndex].face ? this.array[this.faceIndex] : null
+			},
+			displayComments() {
+				const list = (this.comments || []).slice()
+				list.sort((a, b) => {
+					const af = this.getFloorNumber(a && a.floor)
+					const bf = this.getFloorNumber(b && b.floor)
+					if (af !== bf) {
+						return af - bf
+					}
+					return 0
+				})
+				return this.commentOrder === 'desc' ? list.reverse() : list
 			}
 		},
 		mounted() {
@@ -159,6 +179,30 @@
 				this.replyData.classid = this.getPostClassId()
 				this.replyData.siteid = 1000
 				this.replyData.lpage = this.replyData.lpage || 1
+			},
+			toggleCommentOrder() {
+				this.commentOrder = this.commentOrder === 'asc' ? 'desc' : 'asc'
+			},
+			getFloorNumber(floor) {
+				if (floor === '沙发') {
+					return 1
+				}
+				if (floor === '椅子') {
+					return 2
+				}
+				if (floor === '板凳') {
+					return 3
+				}
+				const match = String(floor || '').match(/\d+/)
+				return match ? Number(match[0]) : 0
+			},
+			getCommentKey(comment, index) {
+				return [
+					comment && comment.floor || '',
+					comment && comment.userId || '',
+					comment && comment.time || '',
+					index
+				].join('|')
 			},
 			showToast() {
 				uni.showToast({
@@ -293,16 +337,14 @@
 				if (!href) {
 					return
 				}
-				const postMatch = href.match(/\/bbs-(\d+)\.html/i)
-				if (!postMatch) {
-					uni.navigateTo({
-						url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
-					})
-				} else {
-					uni.navigateTo({
-						url: `/pages/detail/detail?id=${postMatch[1]}`
-					})
+				if (navigateToNativePost(href, {
+						classid: this.getPostClassId()
+					})) {
+					return
 				}
+				uni.navigateTo({
+					url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
+				})
 			},
 			previewCommentImages(images, index) {
 				const urls = (images || []).filter(Boolean)
@@ -351,8 +393,8 @@
 				this.replyData.g = '快速回复'
 				this.replyTips = '请勿乱打字回复,以免被加黑。'
 			},
-			replyToFloor(index) {
-				let floor = this.comments[index]
+			replyToFloor(comment) {
+				let floor = comment || {}
 				this.replyData.g = '发表回复'
 				this.replyData.reply = floor.floor
 				const userId = floor.userId || this.getUserId(floor.user)
@@ -366,7 +408,7 @@
 				this.isReplyFloor = true
 				this.replyTips = `回复${floor.floor}楼：`
 			},
-			CommentOption(index, item){
+			CommentOption(comment, item){
 				switch (item.option) {
 					case '删':
 						uni.showModal({
@@ -489,8 +531,8 @@
 			isFinalDeleteFailure(tipText) {
 				return /(失败|错误|权限|不能|没有|请先|登录|不存在|审核|安全验证)/.test(String(tipText || ''))
 			},
-			goToUserArea(index) {
-				let comment = this.comments[index]
+			goToUserArea(comment) {
+				comment = comment || {}
 				let id = comment.userId || this.getUserId(comment.user)
 				if (!id) {
 					return uni.showToast({
@@ -762,6 +804,14 @@
 				nextParams.push(name + '=' + encodeURIComponent(value === undefined || value === null ? '' : value))
 				return path + '?' + nextParams.join('&') + hash
 			},
+			shouldNotifyPostOwner() {
+				const authorMatch = String(this.postInfo && this.postInfo.authorId || '').match(/\d+/)
+				const userMatch = String(uni.getStorageSync('yaohuoUserId') || '').match(/\d+/)
+				if (!authorMatch || !userMatch) {
+					return true
+				}
+				return authorMatch[0] !== userMatch[0]
+			},
 			buildReplyPayload() {
 				const data = {
 					content: String(this.replyData.content || '').replace(/\n/g, '\r\n'),
@@ -781,7 +831,7 @@
 				if (this.replyData.touserid) {
 					data.touserid = this.replyData.touserid
 				}
-				if (this.replyData.sendmsg) {
+				if (this.replyData.sendmsg || this.shouldNotifyPostOwner()) {
 					data.sendmsg = 1
 				}
 				return data
@@ -1047,6 +1097,22 @@
 		font-size: 15px;
 	}
 
+	.comment-reward-chip {
+		display: inline-flex;
+		align-items: center;
+		height: 32rpx;
+		line-height: 32rpx;
+		margin-left: 10rpx;
+		padding: 0 10rpx;
+		border-radius: 6rpx;
+		background: #fff7e6;
+		border: 1px solid #ffd591;
+		color: #ad6800 !important;
+		font-size: 11px !important;
+		box-sizing: border-box;
+		vertical-align: 2rpx;
+	}
+
 	.uni-comment-date {
 		line-height: 38upx;
 		flex-direction: row;
@@ -1101,6 +1167,25 @@
 		padding: 15upx;
 		border-radius: 50%;
 		color: #333 !important;
+	}
+
+	.comment-order-btn {
+		height: 52rpx;
+		line-height: 52rpx;
+		margin: 0 12rpx 0 0;
+		padding: 0 18rpx;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		vertical-align: middle;
+		border-radius: 26rpx;
+		background: #f7f7f7;
+		color: #333;
+		font-size: 12px;
+	}
+
+	.comment-order-btn::after {
+		border: none;
 	}
 
 	.comment-composer {
