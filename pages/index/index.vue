@@ -112,7 +112,8 @@
 				}, {
 					icon: 'medal',
 					name: '游戏',
-					url: 'https://yaohuo.me/games/gamesindex.aspx'
+					url: 'https://yaohuo.me/games/chuiniu/',
+					nativeUrl: '/pages/game/game'
 				}],
 				loading: true,
 				isSearch: false,
@@ -147,6 +148,10 @@
 		},
 		onShow() {
 			this.hideNativeNavigationBar()
+			if (this.hasFetchedHome) {
+				this.refreshMessageBadge()
+				return
+			}
 			this.checkAuthAndFetch()
 		},
 		methods: {
@@ -212,16 +217,7 @@
 					return
 				}
 				if (item && item.nativeUrl) {
-					uni.navigateTo({
-						url: item.nativeUrl,
-						fail: err => {
-							uni.showToast({
-								title: '发帖页打不开',
-								icon: 'none'
-							})
-							console.log('OPEN_NATIVE_ACTION_FAIL', err)
-						}
-					})
+					this.openNativeAction(item)
 					return
 				}
 				uni.navigateTo({
@@ -232,6 +228,39 @@
 							icon: 'none'
 						})
 						console.log('OPEN_WEB_ACTION_FAIL', err)
+					}
+				})
+			},
+			openNativeAction(item) {
+				const route = item && item.nativeUrl || ''
+				if (!route) {
+					return
+				}
+				uni.navigateTo({
+					url: route,
+					success: () => {
+						console.log('[YAOHUO_NATIVE_NAV_OK]', {
+							from: 'homeAction',
+							route
+						})
+					},
+					fail: err => {
+						console.log('[YAOHUO_NATIVE_NAV_FAIL]', {
+							from: 'homeAction',
+							route,
+							fallbackUrl: item && item.url || '',
+							errMsg: err && err.errMsg || String(err || '')
+						})
+						if (item && item.url) {
+							uni.navigateTo({
+								url: `/pages/webview/webview?url=${encodeURIComponent(item.url)}`
+							})
+							return
+						}
+						uni.showToast({
+							title: '页面打不开',
+							icon: 'none'
+						})
 					}
 				})
 			},
@@ -287,6 +316,40 @@
 				const end = titleMatch ? start + titleMatch.index : Math.min(html.length, start + 5000)
 				return html.slice(start, end)
 			},
+			updateMessageBadge(html) {
+				const messageCountMatch = String(html || '').match(/收到(.*?)封飞鸽传书/)
+				this.messageCountMatch = 0
+				if (messageCountMatch) {
+					uni.setNavigationBarTitle({
+						title: `妖火网（${messageCountMatch[1]}条新消息）`
+					})
+					this.messageCountMatch = messageCountMatch[1]
+					return
+				}
+				uni.setNavigationBarTitle({
+					title: '妖火网'
+				})
+			},
+			refreshMessageBadge() {
+				if (this.redirectingLogin) {
+					return
+				}
+				uni.request({
+					url: 'https://yaohuo.me/',
+					header: getAuthHeader(),
+					success: (res) => {
+						const html = String(res.data || '')
+						if (isLoginRequiredHtml(html)) {
+							this.goLogin()
+							return
+						}
+						this.updateMessageBadge(html)
+					},
+					fail: err => {
+						console.log('[YAOHUO_MESSAGE_BADGE_REFRESH_FAIL]', err)
+					}
+				})
+			},
 			fetchData() {
 				this.loading = true
 				uni.request({
@@ -299,18 +362,7 @@
 								this.goLogin()
 								return
 							}
-							let messageCountMatch = html.match(/收到(.*?)封飞鸽传书/)
-							this.messageCountMatch = 0
-							if (messageCountMatch) {
-								uni.setNavigationBarTitle({
-									title: `妖火网（${messageCountMatch[1]}条新消息）`
-								})
-								this.messageCountMatch = messageCountMatch[1]
-							} else {
-								uni.setNavigationBarTitle({
-									title: '妖火网'
-								})
-							}
+							this.updateMessageBadge(html)
 							let newArr = []
 							const listMatch = html.match(/<div class=["']list["']>([\s\S]*?)<\/div>/i)
 							if (listMatch) {

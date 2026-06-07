@@ -62,6 +62,152 @@ export function navigateToNativePost(input, options) {
 	return true
 }
 
+export function getNativeRoute(input) {
+	const url = normalizeRouteUrl(input)
+	if (!url) {
+		return ''
+	}
+	const postRoute = getNativePostRoute(url)
+	if (postRoute) {
+		return postRoute
+	}
+	if (/\/myfile\.aspx/i.test(url)) {
+		return '/pages/mine/mine'
+	}
+	if (/\/bbs\/book_view_add\.aspx/i.test(url)) {
+		const classId = getQueryValue(url, 'classid') || '177'
+		return `/pages/post/post?classid=${encodeURIComponent(classId)}`
+	}
+	if (/\/bbs\/book_view_sendmoney\.aspx/i.test(url)) {
+		return buildSpecialPostRoute('sendmoney', url)
+	}
+	if (/\/bbs\/book_view_addvote\.aspx/i.test(url)) {
+		return buildSpecialPostRoute('vote', url)
+	}
+	if (/\/bbs\/book_view_addurl\.aspx/i.test(url)) {
+		return buildSpecialPostRoute('resource', url)
+	}
+	if (/\/bbs\/book_view_ubb\.aspx/i.test(url)) {
+		return buildSpecialPostRoute('ubb', url)
+	}
+	if (/\/bbs\/EditProfile\.aspx/i.test(url)) {
+		return buildEditRoute('profile', '修改资料', url)
+	}
+	if (/\/bbs\/ModifyPW\.aspx/i.test(url)) {
+		return buildEditRoute('password', '更改密码', url)
+	}
+	if (/\/bbs\/ModifyHead\.aspx/i.test(url)) {
+		return buildEditRoute('avatar', '更换头像', url)
+	}
+	if (/\/bbs\/favlist\.aspx/i.test(url)) {
+		return buildMineNativeRoute('我的收藏', url)
+	}
+	if (/\/bbs\/banklist\.aspx/i.test(url)) {
+		return buildMineNativeRoute('妖晶明细', url)
+	}
+	if (/\/album\/albumlist\.aspx/i.test(url)) {
+		return buildMineNativeRoute('我的相册', url)
+	}
+	if (/\/clan\/main\.aspx/i.test(url)) {
+		return buildMineNativeRoute('我的家族', url)
+	}
+	if (/\/bbs\/tomoneyinfo\.aspx/i.test(url)) {
+		return buildMineNativeRoute('妖晶获取消费规则', url)
+	}
+	if (/\/bbs\/tolvlinfo\.aspx/i.test(url)) {
+		return buildMineNativeRoute('经验头衔等级规则', url)
+	}
+	if (/\/bbs\/totimeinfo\.aspx/i.test(url)) {
+		return buildMineNativeRoute('在线时间图标规则', url)
+	}
+	if (/\/games\/chuiniu\/(?:$|index\.aspx|\?)/i.test(url)) {
+		return '/pages/game/game'
+	}
+	if (/\/games\/chat\/book_re\.aspx/i.test(url)) {
+		return '/pages/game/game?chat=1'
+	}
+	if (/\/games\/chuiniu\/add\.aspx/i.test(url)) {
+		return '/pages/game/add'
+	}
+	if (/\/games\/chuiniu\/doit\.aspx/i.test(url)) {
+		const id = getQueryValue(url, 'id')
+		return id ? `/pages/game/challenge?id=${encodeURIComponent(id)}` : '/pages/game/game'
+	}
+	if (/\/games\/chuiniu\/book_view\.aspx/i.test(url)) {
+		const id = getQueryValue(url, 'id')
+		const type = getQueryValue(url, 'type')
+		const touserid = getQueryValue(url, 'touserid')
+		const params = [
+			'result=1',
+			id ? 'id=' + encodeURIComponent(id) : '',
+			type ? 'viewType=' + encodeURIComponent(type) : '',
+			touserid ? 'touserid=' + encodeURIComponent(touserid) : ''
+		].filter(Boolean)
+		return `/pages/game/challenge?${params.join('&')}`
+	}
+	if (/\/games\/chuiniu\/monthly\.aspx/i.test(url)) {
+		return '/pages/game/game?mode=rank'
+	}
+	if (/\/games\/chuiniu\/book_list\.aspx/i.test(url)) {
+		const type = getQueryValue(url, 'type') === '1' ? 'records1' : 'records0'
+		return `/pages/game/game?mode=${type}`
+	}
+	if (/\/bbs\/userinfo\.aspx/i.test(url)) {
+		const id = getQueryValue(url, 'touserid')
+		return id ? `/pages/user/user?id=${encodeURIComponent(id)}` : ''
+	}
+	if (/\/bbs\/userinfomore\.aspx/i.test(url)) {
+		const id = getQueryValue(url, 'touserid')
+		return id ? `/pages/user/more?id=${encodeURIComponent(id)}&url=${encodeURIComponent(url)}` : ''
+	}
+	if (/\/bbs\/book_list_log\.aspx/i.test(url) && getQueryValue(url, 'touserid')) {
+		const id = getQueryValue(url, 'touserid')
+		return `/pages/user/logs?id=${encodeURIComponent(id)}&url=${encodeURIComponent(url)}`
+	}
+	if (/\/bbs\/userguessbook\.aspx/i.test(url)) {
+		const id = getQueryValue(url, 'touserid')
+		return id ? `/pages/user/guestbook?id=${encodeURIComponent(id)}&url=${encodeURIComponent(url)}` : ''
+	}
+	if (/\/bbs\/messagelist_add\.aspx/i.test(url)) {
+		const id = getQueryValue(url, 'touserid') || getQueryValue(url, 'touseridlist')
+		return id ? `/pages/user/message?id=${encodeURIComponent(id)}&url=${encodeURIComponent(url)}` : ''
+	}
+	if (/\/bbs\/FriendList\.aspx/i.test(url)) {
+		const action = String(getQueryValue(url, 'action') || '').toLowerCase()
+		if (action && action !== 'class' && action !== 'list') {
+			return ''
+		}
+		const type = getQueryValue(url, 'friendtype') === '1' ? '1' : '0'
+		return `/pages/friends/friends?type=${type}`
+	}
+	if (/\/bbs\/book_re_my\.aspx/i.test(url)) {
+		const userId = getQueryValue(url, 'touserid')
+		const ot = getQueryValue(url, 'ot')
+		return `/pages/replies/replies?userId=${encodeURIComponent(userId || '')}${ot ? '&ot=' + encodeURIComponent(ot) : ''}`
+	}
+	if (/\/bbs\/book_list(?:_search)?\.aspx/i.test(url) && getQueryValue(url, 'type') === 'pub') {
+		return `/pages/bbsList/bbsList?url=${encodeURIComponent(JSON.stringify({url}))}`
+	}
+	return ''
+}
+
+export function navigateToNativeRoute(input, options) {
+	const route = getNativeRoute(input)
+	if (!route) {
+		return false
+	}
+	const method = options && options.replace ? 'redirectTo' : 'navigateTo'
+	uni[method]({
+		url: route,
+		fail: () => {
+			uni.navigateTo({
+				url: route
+			})
+		}
+	})
+	return true
+}
+
 function buildPostRoute(id, classId) {
 	const cleanId = String(id || '').match(/\d+/)
 	if (!cleanId) {
@@ -69,6 +215,19 @@ function buildPostRoute(id, classId) {
 	}
 	const cleanClassId = String(classId || '').match(/\d+/)
 	return `/pages/detail/detail?id=${cleanId[0]}${cleanClassId ? '&classid=' + cleanClassId[0] : ''}`
+}
+
+function buildSpecialPostRoute(type, url) {
+	const classId = getQueryValue(url, 'classid') || '177'
+	return `/pages/post/special?type=${encodeURIComponent(type)}&classid=${encodeURIComponent(classId)}`
+}
+
+function buildMineNativeRoute(title, url) {
+	return `/pages/mine/native-page?title=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`
+}
+
+function buildEditRoute(mode, title, url) {
+	return `/pages/mine/edit-form?mode=${encodeURIComponent(mode)}&title=${encodeURIComponent(title)}&url=${encodeURIComponent(url)}`
 }
 
 function normalizeRouteUrl(input) {

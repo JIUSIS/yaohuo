@@ -14,7 +14,7 @@
 					</view>
 					<view class="id-chip">ID: {{profile.id || '--'}}</view>
 				</view>
-				<view class="edit-link" @click="openWeb(editUrl)">
+				<view class="edit-link" @click="showEditActions">
 					<uni-icons type="compose" size="17" color="#666"></uni-icons>
 					<text>编辑</text>
 				</view>
@@ -131,7 +131,8 @@
 		openInBrowser
 	} from '@/utils/browser.js'
 	import {
-		navigateToNativePost
+		navigateToNativePost,
+		navigateToNativeRoute
 	} from '@/utils/route.js'
 
 	export default {
@@ -182,16 +183,20 @@
 				}, {
 					label: '好友',
 					value: this.profile.friendCount,
-					webUrl: this.findLink(['好友']) || 'https://yaohuo.me/bbs/friendlist.aspx'
+					nativeUrl: '/pages/friends/friends?type=0',
+					webUrl: this.findLink(['好友']) || 'https://yaohuo.me/bbs/FriendList.aspx?friendtype=0'
 				}, {
 					label: '帖子',
 					value: this.profile.postCount,
-					webUrl: id ? `https://yaohuo.me/bbs/book_list.aspx?action=search&type=pub&key=${id}` :
-						'https://yaohuo.me/myfile.aspx'
+					nativeUrl: id ? `/pages/bbsList/bbsList?url=${encodeURIComponent(JSON.stringify({url: `https://yaohuo.me/bbs/book_list_search.aspx?action=search&siteid=1000&classid=0&type=pub&key=${id}`}))}` : '',
+					webUrl: id ? `https://yaohuo.me/bbs/book_list_search.aspx?action=search&siteid=1000&classid=0&type=pub&key=${id}` :
+						(this.findLink(['帖子']) || 'https://yaohuo.me/myfile.aspx')
 				}, {
 					label: '回复',
 					value: this.profile.replyCount,
-					webUrl: id ? `https://yaohuo.me/bbs/book_re_my.aspx?touserid=${id}` : 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: id ? `/pages/replies/replies?userId=${id}` : '',
+					webUrl: id ? `https://yaohuo.me/bbs/book_re_my.aspx?action=class&touserid=${id}` : (this.findLink(['回复']) ||
+						'https://yaohuo.me/myfile.aspx')
 				}]
 			},
 			assetRows() {
@@ -200,7 +205,8 @@
 					icon: 'medal',
 					value: this.profile.coin,
 					actionText: '明细',
-					webUrl: this.findLink(['妖晶', '明细']) || this.findLink(['明细']) || 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: this.buildNativePageRoute('妖晶明细', this.findLink(['妖晶', '明细']) || this.findLink(['明细']) ||
+						`https://yaohuo.me/bbs/banklist.aspx?key=${this.userId}`)
 				}, {
 					title: '我的RMB',
 					icon: 'wallet',
@@ -226,31 +232,36 @@
 				return [{
 					title: '我的收藏',
 					icon: 'star',
-					webUrl: this.findLink(['收藏']) || 'https://yaohuo.me/bbs/book_fav.aspx'
+					nativeUrl: this.buildNativePageRoute('我的收藏', this.findLink(['收藏']) || 'https://yaohuo.me/bbs/favlist.aspx')
 				}, {
 					title: '我的相册',
 					icon: 'images',
-					webUrl: this.findLink(['相册']) || 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: this.buildNativePageRoute('我的相册', this.findLink(['相册']) ||
+						`https://yaohuo.me/album/albumlist.aspx?touserid=${this.userId}`)
 				}, {
 					title: '我的家族',
 					icon: 'personadd',
-					webUrl: this.findLink(['家族']) || 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: this.buildNativePageRoute('我的家族', this.findLink(['家族']) || 'https://yaohuo.me/clan/main.aspx')
 				}, {
 					title: '黑名单',
 					icon: 'locked',
-					webUrl: this.findLink(['黑名单']) || 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: '/pages/friends/friends?type=1',
+					webUrl: this.findLink(['黑名单']) || 'https://yaohuo.me/bbs/FriendList.aspx?friendtype=1'
 				}]
 			},
 			ruleRows() {
 				return [{
 					title: '妖晶获取消费规则',
-					webUrl: this.findLink(['妖晶', '规则']) || 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: this.buildNativePageRoute('妖晶获取消费规则', this.findLink(['妖晶', '规则']) ||
+						'https://yaohuo.me/bbs/tomoneyinfo.aspx')
 				}, {
 					title: '经验头衔等级规则',
-					webUrl: this.findLink(['经验', '规则']) || 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: this.buildNativePageRoute('经验头衔等级规则', this.findLink(['经验', '规则']) ||
+						'https://yaohuo.me/bbs/tolvlinfo.aspx')
 				}, {
 					title: '在线时间图标规则',
-					webUrl: this.findLink(['在线', '规则']) || 'https://yaohuo.me/myfile.aspx'
+					nativeUrl: this.buildNativePageRoute('在线时间图标规则', this.findLink(['在线', '规则']) ||
+						'https://yaohuo.me/bbs/totimeinfo.aspx')
 				}]
 			}
 		},
@@ -353,6 +364,9 @@
 			findLink(words) {
 				const links = this.profile.links || []
 				return (links.find(link => words.every(word => link.text.indexOf(word) > -1)) || {}).href || ''
+			},
+			buildNativePageRoute(title, url) {
+				return `/pages/mine/native-page?title=${encodeURIComponent(title)}&url=${encodeURIComponent(absoluteYaohuoUrl(url))}`
 			},
 			extractUserId(html, text) {
 				const patterns = [
@@ -642,20 +656,78 @@
 					return
 				}
 				if (item.nativeUrl) {
-					return uni.navigateTo({
-						url: item.nativeUrl
-					})
+					return this.openNativeMenu(item)
 				}
 				if (item.browserUrl) {
 					return openInBrowser(item.browserUrl)
 				}
 				this.openWeb(item.webUrl)
 			},
+			showEditActions() {
+				uni.showActionSheet({
+					itemList: ['修改资料', '更改密码', '更换头像'],
+					success: res => {
+						const items = [{
+							mode: 'profile',
+							title: '修改资料',
+							url: 'https://yaohuo.me/bbs/EditProfile.aspx'
+						}, {
+							mode: 'password',
+							title: '更改密码',
+							url: 'https://yaohuo.me/bbs/ModifyPW.aspx'
+						}, {
+							mode: 'avatar',
+							title: '更换头像',
+							url: 'https://yaohuo.me/bbs/ModifyHead.aspx'
+						}]
+						this.openEditForm(items[res.tapIndex])
+					}
+				})
+			},
+			openEditForm(item) {
+				if (!item) {
+					return
+				}
+				uni.navigateTo({
+					url: `/pages/mine/edit-form?mode=${encodeURIComponent(item.mode)}&title=${encodeURIComponent(item.title)}&url=${encodeURIComponent(item.url)}`
+				})
+			},
+			openNativeMenu(item) {
+				const route = item && item.nativeUrl || ''
+				uni.navigateTo({
+					url: route,
+					success: () => {
+						console.log('[YAOHUO_MINE_NATIVE_NAV_OK]', {
+							label: item && item.label || item && item.title || '',
+							route
+						})
+					},
+					fail: err => {
+						console.log('[YAOHUO_MINE_NATIVE_NAV_FAIL]', {
+							label: item && item.label || item && item.title || '',
+							route,
+							fallbackUrl: item && item.webUrl || '',
+							errMsg: err && err.errMsg || String(err || '')
+						})
+						if (item && item.webUrl) {
+							this.openWeb(item.webUrl)
+							return
+						}
+						uni.showToast({
+							title: '页面打不开',
+							icon: 'none'
+						})
+					}
+				})
+			},
 			openWeb(url) {
 				if (!url) {
 					return
 				}
 				const targetUrl = absoluteYaohuoUrl(url)
+				if (navigateToNativeRoute(targetUrl)) {
+					return
+				}
 				if (navigateToNativePost(targetUrl)) {
 					return
 				}

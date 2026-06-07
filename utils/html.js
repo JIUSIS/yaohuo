@@ -120,6 +120,10 @@ export function normalizeHtmlUrls(html) {
 				if (postId) {
 					return ` ${attr}=${quote}/pages/detail/detail?id=${postId}${classIdMatch ? '&classid=' + classIdMatch[1] : ''}${quote}`
 				}
+				const userMatch = decodedUrl.match(/\/bbs\/userinfo\.aspx[^"']*[?&]touserid=(\d+)/i)
+				if (userMatch) {
+					return ` ${attr}=${quote}/pages/user/user?id=${userMatch[1]}${quote}`
+				}
 			}
 			return ` ${attr}=${quote}${absoluteYaohuoUrl(url)}${quote}`
 		})

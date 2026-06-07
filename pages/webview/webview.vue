@@ -14,7 +14,7 @@
 		openInBrowser
 	} from '@/utils/browser.js'
 	import {
-		getNativePostRoute
+		getNativeRoute
 	} from '@/utils/route.js'
 
 	export default {
@@ -55,7 +55,7 @@
 				if (this.loginMode || this.redirecting) {
 					return false
 				}
-				const route = getNativePostRoute(rawUrl)
+				const route = getNativeRoute(rawUrl)
 				if (!route) {
 					return false
 				}

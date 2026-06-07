@@ -19,7 +19,7 @@
 				<view style="margin-top: 20rpx;">
 					<uni-row>
 						<uni-col :span="18">
-							<view class="f-14">
+							<view class="f-14 post-author" @tap="goToPostAuthor">
 								{{info.author}}
 							</view>
 						</uni-col>
@@ -29,12 +29,18 @@
 							</view>
 						</uni-col>
 					</uni-row>
+					<view v-if="info.time" class="post-meta-line">
+						<uni-icons type="calendar" size="14" color="#8b8b8b"></uni-icons>
+						<text>发帖时间 {{info.time}}</text>
+					</view>
 					<view style="margin-top: 20rpx;" v-if="honorArr.length">
 						<image style="width: 40rpx;height: 50rpx;margin-right: 5rpx;" v-for="(item,index) in honorArr"
 							:key="index" :src="item"></image>
 					</view>
-					<view class="post-action-row" v-if="postDeleteUrl">
-						<button class="post-delete-btn" size="mini" :loading="deletingPost" :disabled="deletingPost"
+					<view class="post-action-row" v-if="postDeleteUrl || rewardConfig.url">
+						<button v-if="rewardConfig.url" class="post-reward-btn" size="mini" :loading="rewardLoading"
+							:disabled="rewardLoading" @click="openRewardDialog">打赏</button>
+						<button v-if="postDeleteUrl" class="post-delete-btn" size="mini" :loading="deletingPost" :disabled="deletingPost"
 							@click="deletePost">删除帖子</button>
 					</view>
 				</view>
@@ -94,6 +100,24 @@
 				</view>
 			</view>
 		</view>
+		<view v-if="rewardDialogVisible" class="delete-mask">
+			<view class="reward-dialog">
+				<view class="delete-title">打赏楼主</view>
+				<view class="reward-balance" v-if="rewardConfig.balance">余额 {{rewardConfig.balance}} 妖晶</view>
+				<view class="reward-options">
+					<view v-for="item in rewardOptions" :key="item.value" class="reward-option"
+						:class="{active: rewardAmount === item.value}" @click="selectRewardAmount(item.value)">
+						{{item.label}}
+					</view>
+				</view>
+				<input class="delete-input" type="number" v-model="rewardAmount" placeholder="自定义妖晶，最低 101" />
+				<view class="delete-actions">
+					<button class="delete-cancel" size="mini" @click="closeRewardDialog">取消</button>
+					<button class="delete-confirm" size="mini" :loading="rewardLoading" :disabled="rewardLoading"
+						@click="submitReward">确认打赏</button>
+				</view>
+			</view>
+		</view>
 	</view>
 </template>
 
@@ -117,8 +141,12 @@
 		normalizeHtmlUrls
 	} from '@/utils/html.js'
 	import {
-		navigateToNativePost
+		navigateToNativePost,
+		navigateToNativeRoute
 	} from '@/utils/route.js'
+	import {
+		autoLinkYaohuoUserIdsInHtml
+	} from '@/utils/plugin-features.js'
 	export default {
 		data() {
 			return {
@@ -128,6 +156,8 @@
 				info: {},
 				page: 1,
 				totalPage: 0,
+				replyPageSize: 30,
+				replyOrder: 'desc',
 				status: 'more',
 				replyPageBaseUrl: '',
 				replyGo: '',
@@ -140,6 +170,15 @@
 				deletePassword: '',
 				postImages: [],
 				postAttachments: [],
+				rewardConfig: {
+					url: '',
+					fields: {},
+					balance: 0
+				},
+				rewardOptions: [],
+				rewardAmount: '',
+				rewardDialogVisible: false,
+				rewardLoading: false,
 				imageCache: {},
 				avatarCache: {},
 				avatarLoading: {},
@@ -159,6 +198,15 @@
 			this.fetchDetail()
 		},
 		onReachBottom() {
+			if (this.replyOrder === 'desc') {
+				if (this.page < this.totalPage) {
+					uni.showNavigationBarLoading()
+					this.status = 'loading'
+					this.page++
+					this.fetchReply()
+				}
+				return
+			}
 			if (this.page < this.totalPage) {
 				uni.showNavigationBarLoading()
 				this.status = 'loading'
@@ -205,6 +253,18 @@
 					})
 				}
 				this.requestDeletePost(this.deletePassword)
+			},
+			goToPostAuthor() {
+				const id = this.info && this.info.authorId ? String(this.info.authorId).match(/\d+/) : null
+				if (!id) {
+					return uni.showToast({
+						title: '无法获取用户ID',
+						icon: 'none'
+					})
+				}
+				uni.navigateTo({
+					url: `/pages/user/user?id=${id[0]}`
+				})
 			},
 			requestDeletePost(password) {
 				this.deletingPost = true
@@ -483,7 +543,7 @@
 					const linkMatch = html.match(linkReg)
 					if (linkMatch) {
 						const name = this.stripHtml(linkMatch[2])
-						if (name && !/^\(?\d+\)?$/.test(name)) {
+						if (name) {
 							return name
 						}
 					}
@@ -522,6 +582,155 @@
 					const value = data[key] === undefined || data[key] === null ? '' : data[key]
 					return encodeURIComponent(key) + '=' + encodeURIComponent(value)
 				}).join('&')
+			},
+			updateRewardConfig(html) {
+				const config = this.extractRewardPageConfig(html)
+				const formHtml = this.extractRewardFormHtml(html)
+				const fields = formHtml ? this.extractFormFields(formHtml) : {}
+				const options = this.extractRewardOptions(html)
+				this.rewardConfig = {
+					url: config.formActionUrl ? this.normalizeYaohuoUrl(config.formActionUrl) : '',
+					fields: Object.assign({}, fields, {
+						id: config.id || this.info.postId,
+						classid: config.classid || this.cleanClassId(this.info.classId),
+						siteid: config.siteid || 1000,
+						touserid: config.touserid || '',
+						myuserid: config.myuserid || '',
+						action: 'gomod'
+					}),
+					balance: Number(config.currentUserBalance || 0)
+				}
+				this.rewardOptions = options.length ? options : [{
+					label: '100',
+					value: '101'
+				}, {
+					label: '300',
+					value: '303'
+				}, {
+					label: '520',
+					value: '525'
+				}]
+				this.rewardAmount = this.rewardOptions[0] ? this.rewardOptions[0].value : ''
+			},
+			extractRewardPageConfig(html) {
+				const config = {}
+				const match = String(html || '').match(/window\.rewardPageConfig\s*=\s*\{([\s\S]*?)\}\s*;/i)
+				if (!match) {
+					return config
+				}
+				const reg = /([a-zA-Z0-9_]+)\s*:\s*('([^']*)'|"([^"]*)"|(-?\d+))/g
+				let item
+				while ((item = reg.exec(match[1]))) {
+					config[item[1]] = item[3] !== undefined ? item[3] : item[4] !== undefined ? item[4] : item[5]
+				}
+				return config
+			},
+			extractRewardFormHtml(html) {
+				const forms = this.extractForms(html)
+				return forms.find(form => /sendmoney_freeMain\.aspx|name=["']sendmoney["']|name=["']send["']/i.test(form)) || ''
+			},
+			extractRewardOptions(html) {
+				const options = []
+				const reg = /<button\b[^>]*class\s*=\s*(["'])[^"']*aui-grids-item[^"']*\1[^>]*value\s*=\s*(["'])([^"']+)\2[^>]*>([\s\S]*?)<\/button>/ig
+				let match
+				while ((match = reg.exec(String(html || '')))) {
+					const value = this.stripHtml(match[3])
+					const label = this.stripHtml(match[4])
+					if (value) {
+						options.push({
+							label: label || value,
+							value
+						})
+					}
+				}
+				return options
+			},
+			openRewardDialog() {
+				if (!this.rewardConfig.url) {
+					return uni.showToast({
+						title: '没有打赏入口',
+						icon: 'none'
+					})
+				}
+				this.rewardDialogVisible = true
+			},
+			closeRewardDialog() {
+				if (this.rewardLoading) {
+					return
+				}
+				this.rewardDialogVisible = false
+			},
+			selectRewardAmount(value) {
+				this.rewardAmount = String(value || '')
+			},
+			getNormalizedRewardAmount() {
+				let amount = parseInt(String(this.rewardAmount || '').trim(), 10)
+				if (!amount || isNaN(amount)) {
+					amount = 101
+				}
+				if (amount < 101) {
+					amount = 101
+				}
+				if (this.rewardConfig.balance && amount > this.rewardConfig.balance) {
+					amount = this.rewardConfig.balance
+				}
+				return amount
+			},
+			submitReward() {
+				const amount = this.getNormalizedRewardAmount()
+				if (!this.rewardConfig.url || !amount) {
+					return
+				}
+				const payload = Object.assign({}, this.rewardConfig.fields, {
+					sendmoney: amount,
+					action: 'gomod'
+				})
+				this.rewardLoading = true
+				uni.request({
+					url: this.rewardConfig.url,
+					method: 'POST',
+					header: getAuthHeader({
+						'Content-Type': 'application/x-www-form-urlencoded',
+						'Referer': `https://yaohuo.me/bbs-${this.info.postId}.html`
+					}),
+					data: this.formEncode(payload),
+					success: res => {
+						const html = String(res.data || '')
+						const tip = this.extractTipText(html) || this.extractRewardResultText(html)
+						if (this.isRewardSuccess(html, tip)) {
+							this.rewardDialogVisible = false
+							uni.showModal({
+								title: '打赏成功',
+								content: tip || `已打赏 ${amount} 妖晶`,
+								showCancel: false
+							})
+						} else {
+							uni.showModal({
+								title: '打赏失败',
+								content: tip || '服务器未返回打赏成功结果',
+								showCancel: false
+							})
+						}
+					},
+					fail: () => {
+						uni.showToast({
+							title: '打赏失败',
+							icon: 'none'
+						})
+					},
+					complete: () => {
+						this.rewardLoading = false
+					}
+				})
+			},
+			extractRewardResultText(html) {
+				const text = this.stripHtml(html)
+				const lines = text.split(/\n+/).map(item => item.trim()).filter(Boolean)
+				return lines.slice(0, 5).join('\n').slice(0, 180)
+			},
+			isRewardSuccess(html, tip) {
+				const text = tip || this.stripHtml(html)
+				return /(打赏成功|成功打赏|操作成功|赠送成功|妖晶)/.test(text) && !/(失败|错误|不足|不能|没有|登录)/.test(text)
 			},
 			extractPostDeleteUrl(html) {
 				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/ig
@@ -632,6 +841,9 @@
 						})) {
 						return
 					}
+					if (navigateToNativeRoute(href)) {
+						return
+					}
 					uni.navigateTo({
 						url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
 					})
@@ -662,15 +874,31 @@
 					urls
 				})
 			},
+			getKnownReplyTotalPage() {
+				const totalPage = Number(this.totalPage || 0)
+				if (totalPage > 0) {
+					return totalPage
+				}
+				const replyCount = Number(this.info && this.info.replyCount || 0)
+				if (replyCount > 0) {
+					return Math.max(1, Math.ceil(replyCount / this.replyPageSize))
+				}
+				return 1
+			},
 			fetchReply(flag, auto) {
 				const requestPostId = this.info.postId
-				const afterReply = flag && typeof flag === 'object' && flag.afterReply
+				const flagData = flag && typeof flag === 'object' ? flag : {}
+				const afterReply = flagData.afterReply
+				const order = flagData.order === 'desc' || flagData.order === 'asc' ? flagData.order : ''
+				if (order) {
+					this.replyOrder = order
+				}
 				if (flag) {
 					if (afterReply) {
 						const nextReplyCount = Number(this.info.replyCount || 0) + 1
 						this.info.replyCount = nextReplyCount
-						this.totalPage = Math.max(1, Math.ceil(nextReplyCount / 15))
-						this.page = this.totalPage
+						this.totalPage = Math.max(1, Math.ceil(nextReplyCount / this.replyPageSize))
+						this.page = this.replyOrder === 'desc' ? 1 : this.totalPage
 					} else {
 						this.page = 1
 					}
@@ -708,7 +936,8 @@
 							this.hydrateReplyMedia(this.comments)
 							this.hydrateReplyAvatars(this.comments)
 						}
-						if (!comments.length || this.page >= this.totalPage) {
+						const hasMore = this.page < this.totalPage
+						if (!comments.length || !hasMore) {
 							this.status = 'noMore'
 						} else {
 							this.status = 'more'
@@ -729,8 +958,9 @@
 			},
 			getReplyUrl() {
 				const classId = this.cleanClassId(this.info.classId)
+				const ot = this.replyOrder === 'asc' ? 1 : ''
 				const baseUrl = this.replyPageBaseUrl ||
-					`https://yaohuo.me/bbs/book_re.aspx?action=class&id=${this.info.postId}&siteid=1000&classid=${classId}&lpage=&ot=1&go=${this.replyGo || Date.now()}`
+					`https://yaohuo.me/bbs/book_re.aspx?action=class&id=${this.info.postId}&siteid=1000&classid=${classId}&lpage=1&ot=${ot}&go=${this.replyGo || Date.now()}`
 				return this.setQueryParam(this.cleanReplyListUrl(baseUrl), 'page', this.page || 1)
 			},
 			updateReplyPaging(html) {
@@ -740,10 +970,10 @@
 				}
 				const totalMatch = String(html || '').match(/getTotal=(\d+)/i)
 				if (totalMatch) {
-					this.totalPage = Math.ceil(Number(totalMatch[1]) / 15)
+					this.totalPage = Math.ceil(Number(totalMatch[1]) / this.replyPageSize)
 				}
 				if (!this.totalPage && this.info.replyCount) {
-					this.totalPage = Math.ceil(Number(this.info.replyCount) / 15)
+					this.totalPage = Math.ceil(Number(this.info.replyCount) / this.replyPageSize)
 				}
 				if (!this.totalPage) {
 					this.totalPage = 1
@@ -881,9 +1111,10 @@
 						}
 						let replyCountMatch = html.match(/全部回帖\((.*?)\)/)
 						this.info.replyCount = replyCountMatch ? replyCountMatch[1] : 0
-						this.totalPage = Math.ceil(this.info.replyCount / 15)
+						this.totalPage = Math.ceil(this.info.replyCount / this.replyPageSize)
 						this.info.classId = this.cleanClassId(this.extractClassId(html) || this.info.classId)
 						this.updatePostDeleteUrl(html)
+						this.updateRewardConfig(html)
 						let content = html.match(/<!--listS-->([\s\S]*?)<!--listE-->/)
 						this.nodes = content ? content[1].replace(
 							/height=\"100%px\"/, '').replace(/width=\"100%px\"/, 'width="100%"').replace(
@@ -990,8 +1221,8 @@
 				}).join('')
 			},
 			formatContentHtml(html) {
-				return this.autoLinkPlainUrls(this.normalizeYaohuoImageLinks(normalizeHtmlUrls(this.normalizeImageBbcode(
-					html))))
+				return autoLinkYaohuoUserIdsInHtml(this.autoLinkPlainUrls(this.normalizeYaohuoImageLinks(normalizeHtmlUrls(this.normalizeImageBbcode(
+					html)))), text => this.escapeHtml(text), text => this.escapeHtmlAttr(text))
 			},
 			normalizeImageBbcode(html) {
 				return String(html || '').replace(/\[img\]([\s\S]*?)\[\/img\]/ig, (all, rawUrl) => {
@@ -1094,6 +1325,58 @@
 			isNativeImageUrl(url) {
 				return /(?:^https?:\/\/yaohuo\.me)?\/bbs\/upload\//i.test(String(url || ''))
 			},
+			isHonorMedalImage(url, tag) {
+				const src = String(url || '')
+				const normalized = this.normalizeMediaUrl(src)
+				const text = `${src} ${normalized} ${tag || ''}`
+				if (!src || /\/face\/|favicon|logo|NetCSS\/IMG\/Icon|NetImages\/on[01]\.gif|\/on[01]\.gif/i.test(text)) {
+					return false
+				}
+				if (this.isNativeImageUrl(src) || this.isNativeImageUrl(normalized)) {
+					return false
+				}
+				if (/\/bbs\/medal\/t\d+\.gif(?:[?#].*)?$/i.test(text)) {
+					return false
+				}
+				return /\/bbs\/medal\/|\/XinZhang\/|xunzhang|rongyu|honor|medal|badge|vip|\u52cb\u7ae0|\u8363\u8a89|\u4f1a\u5458|\u8d35\u5bbe/i
+					.test(text)
+			},
+			isHonorMedalUrl(url) {
+				return this.isHonorMedalImage(url, '')
+			},
+			isReplyDecorationImage(url, tag) {
+				const text = `${url || ''} ${tag || ''}`
+				return this.isHonorMedalImage(url, tag) || /NetImages\/on[01]\.gif|回顶部|返回顶部|gotop|backtop/i.test(text)
+			},
+			extractHonorImages(html, options) {
+				const source = this.decodeReplyAttr(String(html || ''))
+				const seen = {}
+				const result = []
+				const collect = block => {
+					const imgReg = /<img\b[^>]*>/ig
+					let imgMatch
+					while ((imgMatch = imgReg.exec(String(block || '')))) {
+						const tag = imgMatch[0]
+						const src = getAttr(tag, 'src') || getAttr(tag, 'data-src')
+						const url = this.normalizeMediaUrl(src)
+						if (!url || !this.isHonorMedalImage(url, tag) || seen[url]) {
+							continue
+						}
+						seen[url] = true
+						result.push(url)
+					}
+				}
+				let blocks = this.extractClassBlocksByToken(source, 'xunzhangtupian')
+					.concat(this.extractClassBlocksByToken(source, 'rongyutupian'))
+				if (!blocks.length) {
+					blocks = this.extractClassBlocksByToken(source, 'xunzhang')
+				}
+				blocks.forEach(collect)
+				if (options && options.includeInline) {
+					collect(source)
+				}
+				return result.slice(0, 8)
+			},
 			collectNativeImageUrls(html) {
 				const urls = []
 				const seen = {}
@@ -1128,6 +1411,13 @@
 					(all, quote, src) => {
 						const url = this.getImageUrlFromLink(src) || this.normalizeMediaUrl(src)
 						return this.isNativeImageUrl(url) ? '' : all
+					})
+			},
+			removeReplyDecorationHtml(html) {
+				return String(html || '').replace(/(?:<br\s*\/?>\s*)?<img\b[^>]*(?:src|data-src)\s*=\s*(["'])([^"']+)\1[^>]*>/ig,
+					(all, quote, src) => {
+						const url = this.getImageUrlFromLink(src) || this.normalizeMediaUrl(src)
+						return this.isReplyDecorationImage(url, all) ? '' : all
 					})
 			},
 			extractPostAttachmentHtml(html) {
@@ -1576,10 +1866,11 @@
 			extractReplyMediaHtml(block, currentText) {
 				const parts = []
 				const seen = {}
-				const addImage = src => {
+				const addImage = (src, tag) => {
 					const imageUrl = this.getImageUrlFromLink(src)
 					const url = imageUrl || this.normalizeMediaUrl(src)
-					if (!url || this.isNativeImageUrl(url) || seen[url] || String(currentText || '').indexOf(url) > -1) {
+					if (!url || this.isNativeImageUrl(url) || this.isReplyDecorationImage(url, tag) || seen[url] || String(
+							currentText || '').indexOf(url) > -1) {
 						return
 					}
 					seen[url] = true
@@ -1597,7 +1888,7 @@
 				const imgReg = /<img\b[^>]*>/ig
 				let imgMatch
 				while ((imgMatch = imgReg.exec(String(block || '')))) {
-					addImage(getAttr(imgMatch[0], 'src') || getAttr(imgMatch[0], 'data-src'))
+					addImage(getAttr(imgMatch[0], 'src') || getAttr(imgMatch[0], 'data-src'), imgMatch[0])
 				}
 				const linkReg = /<a\b[^>]*href\s*=\s*(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/ig
 				let linkMatch
@@ -1892,7 +2183,7 @@
 				let linkMatch
 				while ((linkMatch = userLinkReg.exec(html))) {
 					const name = this.stripHtml(linkMatch[4])
-					if (name && !/^\(?\d+\)?$/.test(name)) {
+					if (name) {
 						return {
 							id: linkMatch[3],
 							name,
@@ -1909,6 +2200,11 @@
 					name,
 					display: this.formatUserName(name, id)
 				}
+			},
+			extractReplyMedals(block) {
+				return this.extractHonorImages(block, {
+					includeInline: true
+				})
 			},
 			parseReplies(html) {
 				let comments = []
@@ -1929,7 +2225,7 @@
 					}
 					const replyTarget = this.extractReplyTarget(block)
 					const replyTextHtml = textMatch ? this.formatContentHtml(textMatch[1]) : ''
-					const replyText = this.removeNativeImageHtml(replyTextHtml)
+					const replyText = this.removeReplyDecorationHtml(this.removeNativeImageHtml(replyTextHtml))
 					const replyMedia = this.extractReplyMediaHtml(block, replyText)
 					const nativeImages = this.collectNativeImageUrls(block)
 					const comment = {
@@ -1937,6 +2233,7 @@
 						user: replyUser.display,
 						userId: replyUser.id,
 						avatar: this.getCachedReplyAvatar(replyUser.id),
+						medals: this.extractReplyMedals(block),
 						time: timeMatch ? this.stripHtml(timeMatch[1]) : '',
 						text: replyTarget + replyText + replyMedia,
 						rewardText: this.extractReplyRewardText(block),
@@ -1953,10 +2250,26 @@
 			},
 			splitReplyBlocks(html) {
 				const makeBlocks = (starts) => {
-					const listEnd = html.indexOf('<!--listE-->')
+					const findTailEnd = start => {
+						const markers = [
+							'<div class="more"',
+							'<div class="title">',
+							'<div class="line1"',
+							'<form ',
+							'<!--listE-->'
+						]
+						let end = html.length
+						markers.forEach(marker => {
+							const index = html.indexOf(marker, start + 1)
+							if (index > start && index < end) {
+								end = index
+							}
+						})
+						return end
+					}
 					return starts.map((start, index) => {
 						const next = starts[index + 1]
-						const end = next || (listEnd > start ? listEnd : html.length)
+						const end = next || findTailEnd(start)
 						return html.slice(start, end > start ? end : html.length)
 					})
 				}
@@ -2042,6 +2355,29 @@
 					}
 				})
 				return source.slice(0, end)
+			},
+			extractPostAuthorMetaHtml(html) {
+				const source = String(html || '')
+				const startMatch = source.match(/<div\b[^>]*class\s*=\s*(["'])[^"']*\blouzhuxinxi\b[^"']*\bsubtitle\b[^"']*\1[^>]*>/i)
+				const start = startMatch ? startMatch.index : source.search(/\[楼主\]/)
+				if (start < 0) {
+					return this.extractPostHeaderHtml(source)
+				}
+				const markers = [
+					'<div class="title">全部回帖',
+					'<div class="recontent"',
+					'<form name="f"',
+					'id="replyFormContainer"',
+					'<div class="list-reply"'
+				]
+				let end = source.length
+				markers.forEach(marker => {
+					const index = source.indexOf(marker, start + 1)
+					if (index > start && index < end) {
+						end = index
+					}
+				})
+				return source.slice(start, end)
 			},
 			cleanPostMetaText(text) {
 				return this.decodeReplyAttr(String(text || ''))
@@ -2145,6 +2481,7 @@
 				}
 				const notificationText = this.cleanPostMetaText(this.extractClassText(header, 'notification-text'))
 				let status = ''
+				let giftRemain = ''
 				this.extractClassBlocksByToken(header, 'xuanshang').forEach(block => {
 					const blockText = this.cleanPostMetaText(this.stripHtml(block))
 					const total = this.extractRewardClassNumber(block, ['xuanshangshuzi']) ||
@@ -2163,6 +2500,9 @@
 					const each = this.extractRewardClassNumber(block, ['meirenshuzi'])
 					const remain = this.extractRewardClassNumber(block, ['yushuzi'])
 					const total = this.extractGiftTotalNumber(block, each, remain)
+					if (remain !== '') {
+						giftRemain = remain
+					}
 					if (total) {
 						addTag(`礼金 ${total}`, 'gift')
 					}
@@ -2188,7 +2528,8 @@
 							addTag(`每人 ${this.normalizeRewardNumber(match[2])}`, 'gift')
 						}
 						if (match[3]) {
-							addTag(`余 ${this.normalizeRewardNumber(match[3])}`, 'gift')
+							giftRemain = this.normalizeRewardNumber(match[3])
+							addTag(`余 ${giftRemain}`, 'gift')
 						}
 						status = status || this.getRewardStatus('gift', this.normalizeRewardNumber(match[1]), '',
 							this.normalizeRewardNumber(match[3] || ''), notificationText)
@@ -2201,7 +2542,8 @@
 				return {
 					tags,
 					status,
-					extra
+					extra,
+					giftRemain
 				}
 			},
 			logPostRewardMeta(html, rewardInfo) {
@@ -2232,13 +2574,36 @@
 				}
 				const readMatch = String(html || '').match(/浏览(?:次数)?[^\d]*(\d+)/)
 				this.info.readCount = readMatch ? readMatch[1] : this.info.readCount || ''
-				const timeMatch = String(html || '').match(/(\d{4}-\d{1,2}-\d{1,2}[\s\S]{0,20})/)
-				this.info.time = timeMatch ? this.stripHtml(timeMatch[1]) : this.info.time || ''
+				this.info.time = this.extractPostTime(html) || this.info.time || ''
 				const rewardInfo = this.extractPostRewardInfo(html)
+				this.honorArr = this.extractHonorImages(this.extractPostAuthorMetaHtml(html))
 				this.$set(this.info, 'rewardTags', rewardInfo.tags)
 				this.$set(this.info, 'rewardStatus', rewardInfo.status)
 				this.$set(this.info, 'extra', rewardInfo.extra)
+				this.$set(this.info, 'giftRemain', rewardInfo.giftRemain || '')
 				this.logPostRewardMeta(html, rewardInfo)
+			},
+			extractPostTime(html) {
+				const source = String(html || '')
+				const direct = source.match(/<span\b[^>]*class\s*=\s*(["'])[^"']*\bDateAndTime\b[^"']*\1[^>]*>([\s\S]*?)<\/span>/i)
+				if (direct) {
+					return this.cleanPostMetaText(this.stripHtml(direct[2]))
+				}
+				const postInfo = this.extractClassBlocksByToken(source, 'Postinfo')[0] || this.extractPostHeaderHtml(source)
+				const postTime = postInfo.match(/<span\b[^>]*class\s*=\s*(["'])[^"']*\bPostime\b[^"']*\1[^>]*>([\s\S]*?)<\/span>/i)
+				if (postTime) {
+					const clean = this.cleanPostMetaText(this.stripHtml(postTime[2]).replace(/^\[?时间\]?/, ''))
+					if (clean) {
+						return clean
+					}
+				}
+				const text = this.cleanPostMetaText(this.stripHtml(postInfo))
+				const labelMatch = text.match(/\[?时间\]?\s*(\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)/)
+				if (labelMatch) {
+					return labelMatch[1]
+				}
+				const fallback = text.match(/(\d{4}-\d{1,2}-\d{1,2}\s+\d{1,2}:\d{2}(?::\d{2})?)/)
+				return fallback ? fallback[1] : ''
 			},
 			getReply(reply, comments) {
 				if (!reply || reply.data == 'listE') {
@@ -2412,6 +2777,23 @@
 		color: rgba(0, 0, 0, .3);
 	}
 
+	.post-author {
+		color: #333333;
+	}
+
+	.post-meta-line {
+		margin-top: 10rpx;
+		display: flex;
+		align-items: center;
+		color: #8b8b8b;
+		font-size: 13px;
+		line-height: 1.4;
+	}
+
+	.post-meta-line text {
+		margin-left: 6rpx;
+	}
+
 	.post-reward-row {
 		margin-top: 16rpx;
 		display: flex;
@@ -2533,6 +2915,18 @@
 		margin-top: 18rpx;
 		display: flex;
 		justify-content: flex-end;
+		align-items: center;
+		gap: 16rpx;
+	}
+
+	.post-reward-btn {
+		margin: 0;
+		height: 58rpx;
+		line-height: 58rpx;
+		padding: 0 24rpx;
+		background: #07c160;
+		color: #fff;
+		font-size: 13px;
 	}
 
 	.post-delete-btn {
@@ -2569,11 +2963,54 @@
 		box-sizing: border-box;
 	}
 
+	.reward-dialog {
+		width: 100%;
+		max-width: 620rpx;
+		background: #fff;
+		border-radius: 8px;
+		padding: 34rpx 30rpx 26rpx;
+		box-sizing: border-box;
+	}
+
 	.delete-title {
 		font-size: 17px;
 		color: #222;
 		font-weight: 600;
 		text-align: center;
+	}
+
+	.reward-balance {
+		margin-top: 16rpx;
+		color: #666;
+		font-size: 13px;
+		text-align: center;
+	}
+
+	.reward-options {
+		margin-top: 24rpx;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 14rpx;
+	}
+
+	.reward-option {
+		min-width: 120rpx;
+		height: 58rpx;
+		line-height: 58rpx;
+		padding: 0 18rpx;
+		border: 1px solid #e5e5e5;
+		border-radius: 8rpx;
+		background: #f8f8f8;
+		color: #333;
+		font-size: 14px;
+		text-align: center;
+		box-sizing: border-box;
+	}
+
+	.reward-option.active {
+		border-color: #07c160;
+		background: #ecfff6;
+		color: #07a153;
 	}
 
 	.delete-desc {

@@ -60,7 +60,34 @@
 				}
 			}
 		}, {
+			"path": "pages/mine/native-page",
+			"style": {
+				"navigationBarTitleText": "详情",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/mine/edit-form",
+			"style": {
+				"navigationBarTitleText": "编辑资料",
+				"enablePullDownRefresh": false,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
 			"path": "pages/post/post",
+			"style": {
+				"navigationBarTitleText": "发帖",
+				"enablePullDownRefresh": false,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/post/special",
 			"style": {
 				"navigationBarTitleText": "发帖",
 				"enablePullDownRefresh": false,
@@ -87,6 +114,96 @@
 				}
 			}
 
+		}, {
+			"path": "pages/game/game",
+			"style": {
+				"navigationBarTitleText": "疯狂吹牛",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/game/challenge",
+			"style": {
+				"navigationBarTitleText": "疯狂吹牛",
+				"enablePullDownRefresh": false,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/game/add",
+			"style": {
+				"navigationBarTitleText": "发起挑战",
+				"enablePullDownRefresh": false,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/friends/friends",
+			"style": {
+				"navigationBarTitleText": "我的好友",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/replies/replies",
+			"style": {
+				"navigationBarTitleText": "我的回复",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/user/user",
+			"style": {
+				"navigationBarTitleText": "用户空间",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/user/more",
+			"style": {
+				"navigationBarTitleText": "个人资料",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/user/logs",
+			"style": {
+				"navigationBarTitleText": "最近动态",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/user/guestbook",
+			"style": {
+				"navigationBarTitleText": "留言板",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
+			"path": "pages/user/message",
+			"style": {
+				"navigationBarTitleText": "发私信",
+				"enablePullDownRefresh": false,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
 		}
 	],
 	"globalStyle": {

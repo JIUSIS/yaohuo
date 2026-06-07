@@ -276,12 +276,40 @@
 				}
 				return links
 			},
+			isUserProfileLink(link) {
+				const href = String(link && link.href || '')
+				return /userinfo\.aspx|\/bbs\/user|touserid=|book_re_my\.aspx/i.test(href)
+			},
 			normalizePostAuthor(text) {
 				return stripHtml(text)
 					.replace(/\s+/g, ' ')
 					.replace(/^(?:作者|楼主|发帖人|发贴人|发帖|发贴)\s*[:：]?/i, '')
 					.replace(/^[\/|｜\s]+|[\/|｜\s]+$/g, '')
 					.trim()
+			},
+			isPostMetricText(text, allowPlainNumber) {
+				text = this.normalizePostAuthor(text)
+				if (!text) {
+					return true
+				}
+				if (/^(?:回|回复|阅|浏览|点击)\s*[:：]?\s*\d+$/i.test(text)) {
+					return true
+				}
+				if (/^(?:最新|最后|时间)$/.test(text)) {
+					return true
+				}
+				return !allowPlainNumber && /^\d+$/.test(text)
+			},
+			extractPostAuthorFromMeta(html) {
+				const reg = /<([a-z0-9]+)\b[^>]*class\s*=\s*(["'])([^"']*(?:louzhunicheng|renick|user-name|post-author|poster-name)[^"']*)\2[^>]*>([\s\S]*?)<\/\1>/ig
+				let match
+				while ((match = reg.exec(String(html || '')))) {
+					const author = this.normalizePostAuthor(match[4])
+					if (author) {
+						return author
+					}
+				}
+				return ''
 			},
 			extractPostTags(block) {
 				const tags = []
@@ -305,12 +333,15 @@
 				if (labelMatch) {
 					return this.normalizePostAuthor(labelMatch[1] || labelMatch[2])
 				}
+				const semanticAuthor = this.extractPostAuthorFromMeta(beforeReply)
+				if (semanticAuthor) {
+					return semanticAuthor
+				}
 				const userLinks = (links || []).filter(link => {
 					return link.index >= start &&
 						(!replyLink || link.index < replyLink.index) &&
-						/userinfo\.aspx|touserid=|mainuserid=/i.test(link.href) &&
-						link.text &&
-						!/^\d+$/.test(link.text)
+						this.isUserProfileLink(link) &&
+						link.text
 				})
 				if (userLinks.length) {
 					return this.normalizePostAuthor(userLinks[userLinks.length - 1].text)
@@ -319,9 +350,13 @@
 					.replace(/\s+/g, ' ')
 					.split(/[\/|｜]/)
 					.map(item => this.normalizePostAuthor(item))
-					.filter(item => item && !/^\d+$/.test(item) && !/^(回|回复|阅|浏览|点击|最新|最后|时间)$/.test(item))
-				if (parts.length) {
-					return parts[parts.length - 1]
+					.filter(Boolean)
+				const hasMetricAfterAuthor = parts.slice(1).some(item => this.isPostMetricText(item, false))
+				for (let i = 0; i < parts.length; i++) {
+					const allowPlainNumber = i === 0 && hasMetricAfterAuthor
+					if (!this.isPostMetricText(parts[i], allowPlainNumber)) {
+						return parts[i]
+					}
 				}
 				return ''
 			},
@@ -332,7 +367,11 @@
 					replyLink: null
 				}
 				const titleEnd = titleLink ? titleLink.end : 0
-				const replyLink = (links || []).find(link => link.index > titleEnd && /^\d+$/.test(link.text))
+				const replyLink = (links || []).find(link => {
+					return link.index > titleEnd &&
+						/^\d+$/.test(link.text) &&
+						!this.isUserProfileLink(link)
+				})
 				if (replyLink) {
 					result.replyCount = replyLink.text
 					result.replyLink = replyLink
