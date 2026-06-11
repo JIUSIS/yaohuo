@@ -35,11 +35,14 @@
 		</view>
 
 		<view v-else-if="items.length" class="card list-card">
-			<view v-for="(item,index) in items" :key="index" class="list-row" @click="openItem(item)">
+			<view v-for="(item,index) in items" :key="item.favoriteId || item.url || index" class="list-row" @click="openItem(item)">
 				<view class="row-main">
 					<text class="row-title">{{item.title}}</text>
 					<text v-if="item.desc" class="row-desc">{{item.desc}}</text>
 				</view>
+				<button v-if="pageType === 'favorite' && item.favoriteId" class="favorite-delete-btn" size="mini"
+					:loading="deletingFavoriteId === item.favoriteId" :disabled="!!deletingFavoriteId"
+					@click.stop="deleteFavorite(item,index)">删除</button>
 				<uni-icons v-if="item.url" type="arrowright" size="17" color="#b6c1bb"></uni-icons>
 			</view>
 		</view>
@@ -80,7 +83,8 @@
 				paragraphs: [],
 				actionUrl: '',
 				emptyText: '',
-				loading: false
+				loading: false,
+				deletingFavoriteId: ''
 			}
 		},
 		onLoad(option) {
@@ -199,12 +203,52 @@
 				}
 			},
 			parseFavoritePage(source) {
-				const items = this.parseLinks(source).filter(item => !this.isNavigationLink(item.title, item.url))
+				const items = this.parseFavoriteItems(source)
 				const empty = /暂无收藏记录/.test(source) ? '暂无收藏记录' : ''
 				return {
 					items,
 					emptyText: empty || (items.length ? '' : '暂无收藏记录')
 				}
+			},
+			parseFavoriteItems(source) {
+				const html = String(source || '')
+				const items = []
+				const seen = {}
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']*bbs-\d+\.html[^"']*)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let match
+				while ((match = reg.exec(html))) {
+					const href = getAttr(match[0], 'href')
+					const title = this.cleanText(match[3])
+					if (!href || !title || this.isNoiseText(title) || this.isHtmlFragmentText(title)) {
+						continue
+					}
+					const url = this.resolveUrl(href, this.url)
+					const key = title + '|' + url
+					if (seen[key]) {
+						continue
+					}
+					const nextIndex = this.findNextFavoriteLinkIndex(html, reg.lastIndex)
+					const block = html.slice(match.index, nextIndex > match.index ? nextIndex : Math.min(html.length, match.index + 1200))
+					const favoriteId = (block.match(/\bdata-fav-id\s*=\s*(["'])(\d+)\1/i) || [])[2] || ''
+					const date = this.cleanText((block.match(/<span\b[^>]*class\s*=\s*(["'])[^"']*\bfavlist-item-date\b[^"']*\1[^>]*>([\s\S]*?)<\/span>/i) || [])[2] || '')
+					seen[key] = true
+					items.push({
+						title,
+						desc: date,
+						url,
+						favoriteId,
+						deleteUrl: favoriteId ? `https://yaohuo.me/bbs/favlist.aspx?action=delete&siteid=1000&favtypeid=0&id=${favoriteId}` : ''
+					})
+				}
+				if (items.length) {
+					return items
+				}
+				return this.parseLinks(source).filter(item => !this.isNavigationLink(item.title, item.url))
+			},
+			findNextFavoriteLinkIndex(html, fromIndex) {
+				const rest = String(html || '').slice(fromIndex)
+				const match = rest.match(/<a\b[^>]*href\s*=\s*(["'])[^"']*bbs-\d+\.html[^"']*\1/i)
+				return match ? fromIndex + match.index : -1
 			},
 			parseClanPage(source) {
 				const sections = this.parseDivSections(source, true, '家族首页')
@@ -543,6 +587,80 @@
 				}
 				this.openWeb(item.url)
 			},
+			deleteFavorite(item, index) {
+				if (!item || !item.favoriteId || this.deletingFavoriteId) {
+					return
+				}
+				uni.showModal({
+					title: '删除收藏',
+					content: '确定删除这条收藏吗？',
+					confirmText: '删除',
+					confirmColor: '#dd524d',
+					success: res => {
+						if (res.confirm) {
+							this.requestDeleteFavorite(item, index)
+						}
+					}
+				})
+			},
+			requestDeleteFavorite(item, index) {
+				this.deletingFavoriteId = item.favoriteId
+				uni.request({
+					url: item.deleteUrl || `https://yaohuo.me/bbs/favlist.aspx?action=delete&siteid=1000&favtypeid=0&id=${item.favoriteId}`,
+					method: 'POST',
+					header: getAuthHeader({
+						'Referer': absoluteYaohuoUrl(this.url)
+					}),
+					success: res => {
+						const result = this.parseFavoriteDeleteResult(res.data)
+						if (Number(res.statusCode || 0) >= 400 || !result.success) {
+							return uni.showModal({
+								title: '删除失败',
+								content: result.message || '服务器没有返回删除成功',
+								showCancel: false
+							})
+						}
+						this.items.splice(index, 1)
+						if (!this.items.length) {
+							this.emptyText = '暂无收藏记录'
+						}
+						uni.showToast({
+							title: result.message || '删除成功',
+							icon: 'success'
+						})
+					},
+					fail: () => {
+						uni.showToast({
+							title: '删除失败',
+							icon: 'none'
+						})
+					},
+					complete: () => {
+						this.deletingFavoriteId = ''
+					}
+				})
+			},
+			parseFavoriteDeleteResult(data) {
+				if (data && typeof data === 'object') {
+					return {
+						success: !!data.success,
+						message: data.message || ''
+					}
+				}
+				try {
+					const parsed = JSON.parse(String(data || ''))
+					return {
+						success: !!parsed.success,
+						message: parsed.message || ''
+					}
+				} catch (e) {
+					const text = this.cleanText(String(data || ''))
+					return {
+						success: /删除成功|成功/.test(text),
+						message: text.slice(0, 80)
+					}
+				}
+			},
 			openWeb(url) {
 				if (!url) {
 					return
@@ -745,6 +863,18 @@
 		color: #7a8781;
 		font-size: 12px;
 		line-height: 18px;
+	}
+
+	.favorite-delete-btn {
+		flex: 0 0 auto;
+		margin: 0 12rpx 0 18rpx;
+		height: 52rpx;
+		line-height: 52rpx;
+		padding: 0 18rpx;
+		border-radius: 6px;
+		background: #fff1f0;
+		color: #cf1322;
+		font-size: 12px;
 	}
 
 	.content-card {

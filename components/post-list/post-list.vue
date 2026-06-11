@@ -1,6 +1,7 @@
 <template>
 	<view class="content">
-		<view v-for="(post,index) in posts" :key="post.id || post.url || index" class="post-card" @click="goToDetail(post.url)">
+		<view v-for="(post,index) in posts" :key="post.id || post.url || index" class="post-card"
+			:class="{read: post.read}" @click="goToDetail(post)">
 			<view class="title f-16">
 				{{index+1}}.{{post.title}}
 			</view>
@@ -41,6 +42,10 @@
 	import {
 		navigateToNativePost
 	} from '@/utils/route.js'
+	import {
+		isPostRead,
+		markPostRead
+	} from '@/utils/read-state.js'
 
 	const DEFAULT_URL = 'https://yaohuo.me/bbs/book_list.aspx?gettotal=2022&action=new'
 	const YAOHUO_ORIGIN = 'https://yaohuo.me'
@@ -92,8 +97,10 @@
 				if (!base) {
 					return ''
 				}
-				const replaced = base.replace(/([?&])page=[^&#]*/i, `$1page=${page}`)
-				return replaced === base ? `${base}${base.indexOf('?') > -1 ? '&' : '?'}page=${page}` : replaced
+				if (/[?&]page=[^&#]*/i.test(base)) {
+					return base.replace(/([?&])page=[^&#]*/i, `$1page=${page}`)
+				}
+				return `${base}${base.indexOf('?') > -1 ? '&' : '?'}page=${page}`
 			},
 			getRequestUrl(page) {
 				if (page > 1 && this.nextPageUrl) {
@@ -140,7 +147,7 @@
 						continue
 					}
 					const url = this.resolvePageUrl(href, requestUrl)
-					if (!/\/bbs\/(?:book_list_search|book_list|list)\.aspx/i.test(url)) {
+					if (!/\/bbs\/(?:book_list_search|book_list_hot|book_list|list)\.aspx/i.test(url)) {
 						continue
 					}
 					const page = this.getUrlPage(url)
@@ -239,8 +246,21 @@
 				const match = String(this.getBaseUrl()).match(/classid=(\d+)/i)
 				return match ? match[1] : ''
 			},
-			goToDetail(url) {
+			syncReadState() {
+				this.posts.forEach(post => {
+					this.$set(post, 'read', isPostRead(post.id || post.url))
+				})
+			},
+			goToDetail(input) {
+				const post = typeof input === 'string' ? {
+					url: input
+				} : (input || {})
+				const url = post.url || ''
 				if (uni.getStorageSync('cookie')) {
+					markPostRead(post.id || url)
+					if (post && typeof post === 'object') {
+						this.$set(post, 'read', true)
+					}
 					const classId = this.getListClassId()
 					navigateToNativePost(url, {
 						classid: classId
@@ -401,7 +421,8 @@
 					author: this.extractPostAuthor(block, titleLink, counts.replyLink, links),
 					readCount: counts.readCount,
 					replyCount: counts.replyCount,
-					tags: this.extractPostTags(block)
+					tags: this.extractPostTags(block),
+					read: isPostRead(idMatch ? idMatch[1] : titleLink.href)
 				}
 			},
 			parsePosts(resData) {
@@ -438,7 +459,8 @@
 						author: '',
 						readCount: '',
 						replyCount: '',
-						tags: []
+						tags: [],
+						read: isPostRead(id || url)
 					})
 				}
 				return posts
@@ -517,6 +539,13 @@
 			border-radius: 8px;
 			position: relative;
 			background: #fff;
+
+			&.read {
+				.title,
+				.info {
+					color: #9a9a9a;
+				}
+			}
 
 			.tags {
 				position: absolute;

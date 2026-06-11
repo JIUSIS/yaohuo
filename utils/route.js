@@ -78,6 +78,9 @@ export function getNativeRoute(input) {
 		const classId = getQueryValue(url, 'classid') || '177'
 		return `/pages/post/post?classid=${encodeURIComponent(classId)}`
 	}
+	if (/\/bbs\/book_view_mod\.aspx/i.test(url)) {
+		return buildPostEditRoute(url)
+	}
 	if (/\/bbs\/book_view_sendmoney\.aspx/i.test(url)) {
 		return buildSpecialPostRoute('sendmoney', url)
 	}
@@ -185,7 +188,10 @@ export function getNativeRoute(input) {
 		const ot = getQueryValue(url, 'ot')
 		return `/pages/replies/replies?userId=${encodeURIComponent(userId || '')}${ot ? '&ot=' + encodeURIComponent(ot) : ''}`
 	}
-	if (/\/bbs\/book_list(?:_search)?\.aspx/i.test(url) && getQueryValue(url, 'type') === 'pub') {
+	if (/\/bbs\/book_list_rank\.aspx/i.test(url)) {
+		return `/pages/rank/rank?url=${encodeURIComponent(url)}`
+	}
+	if (/\/bbs\/(?:book_list_search|book_list_hot|book_list|list)\.aspx/i.test(url)) {
 		return `/pages/bbsList/bbsList?url=${encodeURIComponent(JSON.stringify({url}))}`
 	}
 	return ''
@@ -220,6 +226,17 @@ function buildPostRoute(id, classId) {
 function buildSpecialPostRoute(type, url) {
 	const classId = getQueryValue(url, 'classid') || '177'
 	return `/pages/post/special?type=${encodeURIComponent(type)}&classid=${encodeURIComponent(classId)}`
+}
+
+function buildPostEditRoute(url) {
+	const id = getQueryValue(url, 'id')
+	const classId = getQueryValue(url, 'classid') || '177'
+	const params = [
+		`url=${encodeURIComponent(url)}`,
+		id ? `id=${encodeURIComponent(id)}` : '',
+		classId ? `classid=${encodeURIComponent(classId)}` : ''
+	].filter(Boolean)
+	return `/pages/post/edit?${params.join('&')}`
 }
 
 function buildMineNativeRoute(title, url) {

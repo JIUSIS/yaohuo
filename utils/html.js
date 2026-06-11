@@ -110,6 +110,9 @@ export function normalizeHtmlUrls(html) {
 		.replace(/\s(src|href)=([\"'])([^\"']+)\2/ig, (all, attr, quote, url) => {
 			if (attr.toLowerCase() === 'href') {
 				const decodedUrl = decodeHtml(url)
+				if (/^copy-code:\/\//i.test(decodedUrl)) {
+					return ` ${attr}=${quote}${decodedUrl}${quote}`
+				}
 				const htmlPostMatch = decodedUrl.match(/(?:^|\/)bbs-(\d+)\.html/i)
 				const idMatch = decodedUrl.match(/[?&]id=(\d+)/i)
 				const classIdMatch = decodedUrl.match(/[?&]classid=(\d+)/i)

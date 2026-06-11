@@ -46,6 +46,18 @@
 						</uni-grid-item>
 					</uni-grid>
 				</view>
+				<view class="home-quick mt-20">
+					<view v-for="(item,index) in quickArr" :key="item.name" class="home-quick-item"
+						@click="openHomeQuick(item)">
+						<view class="home-quick-icon" :class="'quick-' + index">
+							<uni-icons :type="item.icon" :size="24" color="#fff" />
+						</view>
+						<view class="home-quick-text">
+							<text class="home-quick-name">{{item.name}}</text>
+							<text class="home-quick-desc">{{item.desc}}</text>
+						</view>
+					</view>
+				</view>
 				<view class="mt-20 br-8 f-15" style="background-color: #fff;">
 					<uni-section titleFontSize="16px" title="最新回复" type="line"></uni-section>
 					<uni-row>
@@ -115,6 +127,24 @@
 					url: 'https://yaohuo.me/games/chuiniu/',
 					nativeUrl: '/pages/game/game'
 				}],
+				quickArr: [{
+					icon: 'sound',
+					name: '活动线报',
+					desc: '最新活动',
+					url: 'https://yaohuo.me/bbs/book_list.aspx?action=new&classid=204',
+					type: 'list'
+				}, {
+					icon: 'medal',
+					name: '风云榜',
+					desc: '全站排行',
+					nativeUrl: '/pages/rank/rank?url=' + encodeURIComponent('https://yaohuo.me/bbs/book_list_rank.aspx')
+				}, {
+					icon: 'fire',
+					name: '全站热帖',
+					desc: '热门讨论',
+					url: 'https://yaohuo.me/bbs/book_list_hot.aspx?days=1',
+					type: 'list'
+				}],
 				loading: true,
 				isSearch: false,
 				searchContent: '',
@@ -148,6 +178,9 @@
 		},
 		onShow() {
 			this.hideNativeNavigationBar()
+			if (this.$refs.postList && this.$refs.postList.syncReadState) {
+				this.$refs.postList.syncReadState()
+			}
 			if (this.hasFetchedHome) {
 				this.refreshMessageBadge()
 				return
@@ -263,6 +296,37 @@
 						})
 					}
 				})
+			},
+			openHomeQuick(item) {
+				if (!item) {
+					return
+				}
+				if (item.nativeUrl) {
+					uni.navigateTo({
+						url: item.nativeUrl,
+						fail: err => {
+							console.log('[YAOHUO_HOME_QUICK_NATIVE_FAIL]', err)
+							uni.showToast({
+								title: '页面打不开',
+								icon: 'none'
+							})
+						}
+					})
+					return
+				}
+				if (item.url) {
+					const url = absoluteYaohuoUrl(item.url)
+					uni.navigateTo({
+						url: `/pages/bbsList/bbsList?url=${encodeURIComponent(JSON.stringify({url}))}`,
+						fail: err => {
+							console.log('[YAOHUO_HOME_QUICK_LIST_FAIL]', err)
+							uni.showToast({
+								title: '页面打不开',
+								icon: 'none'
+							})
+						}
+					})
+				}
 			},
 			goToRecommend(item) {
 				if (!item || !item.url) {
@@ -568,6 +632,70 @@
 
 	::v-deep .uni-section {
 		border-radius: 8px;
+	}
+
+	.home-quick {
+		display: flex;
+		gap: 12rpx;
+	}
+
+	.home-quick-item {
+		flex: 1;
+		min-width: 0;
+		padding: 18rpx 12rpx;
+		border-radius: 8px;
+		background: #fff;
+		display: flex;
+		align-items: center;
+		box-sizing: border-box;
+	}
+
+	.home-quick-icon {
+		width: 52rpx;
+		height: 52rpx;
+		border-radius: 26rpx;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex: 0 0 auto;
+		margin-right: 10rpx;
+	}
+
+	.quick-0 {
+		background: #07c160;
+	}
+
+	.quick-1 {
+		background: #f59e0b;
+	}
+
+	.quick-2 {
+		background: #ef4444;
+	}
+
+	.home-quick-text {
+		min-width: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.home-quick-name {
+		font-size: 14px;
+		color: #222;
+		line-height: 18px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.home-quick-desc {
+		margin-top: 4rpx;
+		font-size: 11px;
+		color: #888;
+		line-height: 15px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	::v-deep .grid .uni-grid-wrap,

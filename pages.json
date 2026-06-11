@@ -87,6 +87,15 @@
 				}
 			}
 		}, {
+			"path": "pages/post/edit",
+			"style": {
+				"navigationBarTitleText": "修改帖子",
+				"enablePullDownRefresh": false,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
+		}, {
 			"path": "pages/post/special",
 			"style": {
 				"navigationBarTitleText": "发帖",
@@ -114,6 +123,15 @@
 				}
 			}
 
+		}, {
+			"path": "pages/rank/rank",
+			"style": {
+				"navigationBarTitleText": "风云榜",
+				"enablePullDownRefresh": true,
+				"app-plus": {
+					"bounce": "none"
+				}
+			}
 		}, {
 			"path": "pages/game/game",
 			"style": {

@@ -150,6 +150,10 @@
 		PLUGIN_EMOJIS
 	} from '@/utils/plugin-emojis.js'
 	import {
+		getCodeBlockText,
+		getCodeCopyKey
+	} from '@/utils/code-copy.js'
+	import {
 		chooseYaohuoLocalFile,
 		extractYaohuoUploadTip,
 		getYaohuoReplyFileUrl,
@@ -1129,7 +1133,11 @@
 				})
 			},
 			linkTap(e) {
-				const href = this.normalizeYaohuoUrl(e && e.href)
+				const rawHref = e && (e.href || (e.attrs && e.attrs.href))
+				if (this.copyCodeBlock(rawHref)) {
+					return
+				}
+				const href = this.normalizeYaohuoUrl(rawHref)
 				if (!href) {
 					return
 				}
@@ -1144,6 +1152,36 @@
 				uni.navigateTo({
 					url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
 				})
+			},
+			copyCodeBlock(href) {
+				const key = getCodeCopyKey(href)
+				if (!key) {
+					return false
+				}
+				const text = getCodeBlockText(key)
+				if (!text) {
+					uni.showToast({
+						title: '代码不存在',
+						icon: 'none'
+					})
+					return true
+				}
+				uni.setClipboardData({
+					data: text,
+					success: () => {
+						uni.showToast({
+							title: '已复制',
+							icon: 'success'
+						})
+					},
+					fail: () => {
+						uni.showToast({
+							title: '复制失败',
+							icon: 'none'
+						})
+					}
+				})
+				return true
 			},
 			previewCommentImages(images, index) {
 				const urls = (images || []).filter(Boolean)

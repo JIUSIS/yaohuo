@@ -37,9 +37,14 @@
 						<image style="width: 40rpx;height: 50rpx;margin-right: 5rpx;" v-for="(item,index) in honorArr"
 							:key="index" :src="item"></image>
 					</view>
-					<view class="post-action-row" v-if="postDeleteUrl || rewardConfig.url">
+					<view class="post-action-row" v-if="postFavoriteUrl || postFavorited || postEditUrl || postDeleteUrl || rewardConfig.url">
+						<button v-if="postFavoriteUrl || postFavorited" class="post-favorite-btn" size="mini" :loading="favoritingPost"
+							:disabled="favoritingPost || postFavorited" @click="favoritePost">
+							{{postFavorited ? '已收藏' : '收藏'}}
+						</button>
 						<button v-if="rewardConfig.url" class="post-reward-btn" size="mini" :loading="rewardLoading"
 							:disabled="rewardLoading" @click="openRewardDialog">打赏</button>
+						<button v-if="postEditUrl" class="post-edit-btn" size="mini" @click="editPost">编辑</button>
 						<button v-if="postDeleteUrl" class="post-delete-btn" size="mini" :loading="deletingPost" :disabled="deletingPost"
 							@click="deletePost">删除帖子</button>
 					</view>
@@ -130,7 +135,8 @@
 	} from '@/utils/yaohuo.js'
 	import HTMLParser from '@/utils/html-parser.js'
 	import {
-		getAuthHeader
+		getAuthHeader,
+		isLoginRequiredHtml
 	} from '@/utils/auth.js'
 	import {
 		openInBrowser
@@ -147,6 +153,16 @@
 	import {
 		autoLinkYaohuoUserIdsInHtml
 	} from '@/utils/plugin-features.js'
+	import {
+		buildCodeCopyUrl,
+		clearCodeBlocks,
+		getCodeBlockText,
+		getCodeCopyKey,
+		registerCodeBlock
+	} from '@/utils/code-copy.js'
+	import {
+		markPostRead
+	} from '@/utils/read-state.js'
 	export default {
 		data() {
 			return {
@@ -161,8 +177,13 @@
 				status: 'more',
 				replyPageBaseUrl: '',
 				replyGo: '',
+				codeCopyScope: '',
 				idObj: idObj,
 				honorArr: [],
+				postFavoriteUrl: '',
+				postFavorited: false,
+				favoritingPost: false,
+				postEditUrl: '',
 				postDeleteUrl: '',
 				currentUserId: '',
 				deletingPost: false,
@@ -189,10 +210,13 @@
 			this.detailPageAlive = true
 			this.info.postId = option.id
 			this.info.classId = option.classid || option.classId || ''
+			this.codeCopyScope = `post-${option.id || Date.now()}`
+			markPostRead(option.id)
 			this.fetchDetail()
 		},
 		onUnload() {
 			this.detailPageAlive = false
+			clearCodeBlocks(this.codeCopyScope)
 		},
 		onPullDownRefresh() {
 			this.fetchDetail()
@@ -215,6 +239,84 @@
 			}
 		},
 		methods: {
+			favoritePost() {
+				if (!this.postFavoriteUrl || this.favoritingPost || this.postFavorited) {
+					return
+				}
+				this.favoritingPost = true
+				uni.showLoading({
+					title: '收藏中'
+				})
+				uni.request({
+					url: this.postFavoriteUrl,
+					method: 'GET',
+					header: getAuthHeader({
+						'Referer': `https://yaohuo.me/bbs-${this.info.postId}.html`
+					}),
+					success: res => {
+						this.handlePostFavoriteResponse(res)
+					},
+					fail: () => {
+						uni.showToast({
+							title: '收藏失败',
+							icon: 'none'
+						})
+					},
+					complete: () => {
+						this.favoritingPost = false
+						uni.hideLoading()
+					}
+				})
+			},
+			handlePostFavoriteResponse(res) {
+				const html = String(res.data || '')
+				const text = this.stripHtml(html).slice(0, 500)
+				console.log('[YAOHUO_POST_FAVORITE_RESPONSE]', {
+					statusCode: res.statusCode,
+					url: this.postFavoriteUrl,
+					text
+				})
+				if (isLoginRequiredHtml(html)) {
+					return uni.showModal({
+						title: '需要登录',
+						content: '请重新登录后再收藏。',
+						showCancel: false
+					})
+				}
+				if (this.isPostFavoriteSuccess(res, html, text)) {
+					this.postFavorited = true
+					return uni.showToast({
+						title: '收藏成功',
+						icon: 'success'
+					})
+				}
+				uni.showModal({
+					title: '收藏失败',
+					content: text || '服务器没有返回收藏成功结果',
+					showCancel: false
+				})
+			},
+			isPostFavoriteSuccess(res, html, text) {
+				const statusCode = Number(res && res.statusCode || 0)
+				if (/(收藏成功|成功收藏|已收藏|我的收藏夹)/.test(text || this.stripHtml(html))) {
+					return true
+				}
+				if (/(失败|错误|不能|没有权限|请先登录|登录)/.test(text || '')) {
+					return false
+				}
+				return statusCode >= 200 && statusCode < 400
+			},
+			editPost() {
+				if (!this.postEditUrl) {
+					return uni.showToast({
+						title: '没有编辑入口',
+						icon: 'none'
+					})
+				}
+				uni.navigateTo({
+					url: `/pages/post/edit?url=${encodeURIComponent(this.postEditUrl)}&id=${encodeURIComponent(this.info.postId || '')}&classid=${encodeURIComponent(this.info.classId || '')}`
+				})
+			},
 			deletePost() {
 				if (!this.postDeleteUrl) {
 					return uni.showToast({
@@ -461,11 +563,13 @@
 			},
 			updatePostDeleteUrl(html) {
 				const deleteUrl = this.extractPostDeleteUrl(html)
+				const editUrl = this.extractPostEditUrl(html)
 				const authorId = this.extractPostAuthorId(html)
 				const postId = this.info.postId
 				this.info.authorId = authorId
 				this.postDeleteUrl = ''
-				if (!deleteUrl || !authorId) {
+				this.postEditUrl = ''
+				if ((!deleteUrl && !editUrl) || !authorId) {
 					return
 				}
 				this.getCurrentUserId().then(userId => {
@@ -473,8 +577,76 @@
 						return
 					}
 					this.currentUserId = userId
-					this.postDeleteUrl = userId && String(userId) === String(authorId) ? deleteUrl : ''
+					const canManage = userId && String(userId) === String(authorId)
+					this.postDeleteUrl = canManage ? deleteUrl : ''
+					this.postEditUrl = canManage ? editUrl : ''
 				})
+			},
+			updatePostFavoriteUrl(html) {
+				const postId = String(this.info.postId || '')
+				this.postFavoriteUrl = this.extractPostFavoriteUrl(html) || this.buildPostFavoriteUrl()
+				this.postFavorited = this.extractPostFavoritedFromHtml(html)
+				this.checkPostFavoriteState(postId)
+			},
+			buildPostFavoriteUrl() {
+				if (!this.info.postId) {
+					return ''
+				}
+				let url = 'https://yaohuo.me/bbs/Share.aspx?action=fav&siteid=1000'
+				url = this.setQueryParam(url, 'id', this.info.postId)
+				if (this.cleanClassId(this.info.classId)) {
+					url = this.setQueryParam(url, 'classid', this.cleanClassId(this.info.classId))
+				}
+				return url
+			},
+			extractPostFavoritedFromHtml(html) {
+				const text = this.stripHtml(String(html || ''))
+				return /已收藏|取消收藏/.test(text)
+			},
+			checkPostFavoriteState(postId) {
+				postId = String(postId || this.info.postId || '').match(/\d+/)
+				if (!postId) {
+					return
+				}
+				postId = postId[0]
+				this.requestFavoriteState(postId, `https://yaohuo.me/bbs/favlist.aspx?key=${encodeURIComponent(postId)}`, true)
+			},
+			requestFavoriteState(postId, url, allowFallback) {
+				uni.request({
+					url,
+					header: getAuthHeader(),
+					success: res => {
+						if (!this.detailPageAlive || String(this.info.postId || '') !== postId) {
+							return
+						}
+						const html = String(res.data || '')
+						if (isLoginRequiredHtml(html)) {
+							return
+						}
+						const favorited = this.isPostInFavoriteList(html, postId)
+						if (favorited || !allowFallback) {
+							this.postFavorited = favorited
+							return
+						}
+						this.requestFavoriteState(postId, 'https://yaohuo.me/bbs/favlist.aspx', false)
+					},
+					fail: err => {
+						console.log('[YAOHUO_FAVORITE_STATE_FAIL]', {
+							postId,
+							url,
+							errMsg: err && err.errMsg || String(err || '')
+						})
+					}
+				})
+			},
+			isPostInFavoriteList(html, postId) {
+				const source = this.decodeReplyAttr(String(html || ''))
+				const escaped = String(postId || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+				const patterns = [
+					new RegExp(`bbs-${escaped}\\.html`, 'i'),
+					new RegExp(`book_view\\.aspx[^"']*[?&]id=${escaped}(?:[&#"']|$)`, 'i')
+				]
+				return patterns.some(pattern => pattern.test(source))
 			},
 			getCurrentUserId() {
 				if (this.currentUserId) {
@@ -753,12 +925,69 @@
 				}
 				return adminUrl ? this.getPostDeleteUrlFromAdmin(adminUrl) : ''
 			},
+			extractPostFavoriteUrl(html) {
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let match
+				while ((match = reg.exec(String(html || '')))) {
+					const href = this.decodeReplyAttr(match[2])
+					const text = this.stripHtml(match[3])
+					if (/\/bbs\/Share\.aspx/i.test(href) && /[?&]action=fav/i.test(href) && /收藏/.test(text)) {
+						let url = this.normalizeYaohuoUrl(href)
+						url = this.setQueryParam(url, 'action', 'fav')
+						url = this.setQueryParam(url, 'id', this.info.postId)
+						url = this.setQueryParam(url, 'siteid', 1000)
+						if (this.cleanClassId(this.info.classId)) {
+							url = this.setQueryParam(url, 'classid', this.cleanClassId(this.info.classId))
+						}
+						return url
+					}
+				}
+				return ''
+			},
+			extractPostEditUrl(html) {
+				const reg = /<a\b[^>]*href\s*=\s*(["'])([^"']+)\1[^>]*>([\s\S]*?)<\/a>/ig
+				let adminUrl = ''
+				let match
+				while ((match = reg.exec(String(html || '')))) {
+					const href = this.decodeReplyAttr(match[2])
+					const text = this.stripHtml(match[3])
+					if (!href || /book_re_|book_re\.aspx|Share\.aspx|fav|book_view_del/i.test(href)) {
+						continue
+					}
+					if (/Book_View_admin\.aspx/i.test(href)) {
+						if (!adminUrl && /管理/.test(text)) {
+							adminUrl = this.normalizeYaohuoUrl(href)
+						}
+						continue
+					}
+					const isEditText = /修改此帖|编辑此帖|编辑帖子|修改帖子/.test(text)
+					const isEditUrl = /book_view_(?:mod|edit)\.aspx|book_view_add\.aspx[^"']*[?&]action=(?:edit|mod)/i.test(href)
+					if (isEditText || isEditUrl) {
+						return this.normalizeYaohuoUrl(href)
+					}
+				}
+				return adminUrl ? this.getPostEditUrlFromAdmin(adminUrl) : ''
+			},
 			getPostDeleteUrlFromAdmin(adminUrl) {
 				let url = String(adminUrl || '')
 				if (!url) {
 					return ''
 				}
 				url = url.replace(/\/bbs\/Book_View_admin\.aspx/i, '/bbs/book_view_del.aspx')
+				url = this.setQueryParam(url, 'action', 'go')
+				url = this.setQueryParam(url, 'id', this.info.postId)
+				url = this.setQueryParam(url, 'siteid', 1000)
+				if (this.cleanClassId(this.info.classId)) {
+					url = this.setQueryParam(url, 'classid', this.cleanClassId(this.info.classId))
+				}
+				return url
+			},
+			getPostEditUrlFromAdmin(adminUrl) {
+				let url = String(adminUrl || '')
+				if (!url) {
+					return ''
+				}
+				url = url.replace(/\/bbs\/Book_View_admin\.aspx/i, '/bbs/book_view_mod.aspx')
 				url = this.setQueryParam(url, 'action', 'go')
 				url = this.setQueryParam(url, 'id', this.info.postId)
 				url = this.setQueryParam(url, 'siteid', 1000)
@@ -825,7 +1054,11 @@
 				})
 			},
 			linkTap(e) {
-				const href = this.normalizeYaohuoUrl(e && e.href)
+				const rawHref = e && (e.href || (e.attrs && e.attrs.href))
+				if (this.copyCodeBlock(rawHref)) {
+					return
+				}
+				const href = this.normalizeYaohuoUrl(rawHref)
 				if (!href) {
 					return
 				}
@@ -848,6 +1081,36 @@
 						url: `/pages/webview/webview?url=${encodeURIComponent(href)}`
 					})
 				}
+			},
+			copyCodeBlock(href) {
+				const key = getCodeCopyKey(href)
+				if (!key) {
+					return false
+				}
+				const text = getCodeBlockText(key)
+				if (!text) {
+					uni.showToast({
+						title: '代码不存在',
+						icon: 'none'
+					})
+					return true
+				}
+				uni.setClipboardData({
+					data: text,
+					success: () => {
+						uni.showToast({
+							title: '已复制',
+							icon: 'success'
+						})
+					},
+					fail: () => {
+						uni.showToast({
+							title: '复制失败',
+							icon: 'none'
+						})
+					}
+				})
+				return true
 			},
 			htmlMediaError(e) {
 				if (e && e.source === 'img') {
@@ -1043,8 +1306,11 @@
 			decodeHtmlText(text) {
 				return String(text || '')
 					.replace(/&amp;/g, '&')
+					.replace(/&lt;/g, '<')
+					.replace(/&gt;/g, '>')
 					.replace(/&quot;/g, '"')
 					.replace(/&#39;/g, "'")
+					.replace(/&nbsp;/g, ' ')
 			},
 			decodeUrlText(text) {
 				try {
@@ -1113,8 +1379,10 @@
 						this.info.replyCount = replyCountMatch ? replyCountMatch[1] : 0
 						this.totalPage = Math.ceil(this.info.replyCount / this.replyPageSize)
 						this.info.classId = this.cleanClassId(this.extractClassId(html) || this.info.classId)
+						this.updatePostFavoriteUrl(html)
 						this.updatePostDeleteUrl(html)
 						this.updateRewardConfig(html)
+						clearCodeBlocks(this.codeCopyScope)
 						let content = html.match(/<!--listS-->([\s\S]*?)<!--listE-->/)
 						this.nodes = content ? content[1].replace(
 							/height=\"100%px\"/, '').replace(/width=\"100%px\"/, 'width="100%"').replace(
@@ -1221,8 +1489,78 @@
 				}).join('')
 			},
 			formatContentHtml(html) {
-				return autoLinkYaohuoUserIdsInHtml(this.autoLinkPlainUrls(this.normalizeYaohuoImageLinks(normalizeHtmlUrls(this.normalizeImageBbcode(
-					html)))), text => this.escapeHtml(text), text => this.escapeHtmlAttr(text))
+				const normalized = this.normalizeCodeBlocks(this.normalizeImageBbcode(html))
+				return autoLinkYaohuoUserIdsInHtml(this.autoLinkPlainUrls(this.normalizeYaohuoImageLinks(normalizeHtmlUrls(
+					normalized))), text => this.escapeHtml(text), text => this.escapeHtmlAttr(text))
+			},
+			normalizeCodeBlocks(html) {
+				return this.normalizeMarkdownCodeFences(this.normalizeHtmlCodeBlocks(this.normalizeCodeAssets(html)))
+			},
+			normalizeCodeAssets(html) {
+				return String(html || '')
+					.replace(/<link\b[^>]*(?:MarkDown\.css|highlight\.js|\/Code\/)[^>]*>/ig, '')
+					.replace(/<script\b[^>]*(?:highlight|clipboard|ClickCopy|\/Code\/)[^>]*>\s*<\/script>/ig, '')
+					.replace(/<script\b[^>]*>[\s\S]*?(?:CodeSnippet|highlightElement|hljs|clipboard)[\s\S]*?<\/script>/ig, '')
+			},
+			normalizeHtmlCodeBlocks(html) {
+				return String(html || '')
+					.replace(/<pre\b[^>]*class\s*=\s*(["'])[^"']*\bCodeContainer\b[^"']*\1[^>]*>[\s\S]*?<\/pre>/ig, all => {
+						return this.renderCodeBlock(this.extractCodeText(all))
+					})
+					.replace(/<pre\b(?![^>]*data-yh-code)[^>]*>([\s\S]*?)<\/pre>/ig, all => {
+						return this.renderCodeBlock(this.extractCodeText(all))
+					})
+					.replace(/<code\b(?![^>]*data-yh-code)([^>]*)>([\s\S]*?)<\/code>/ig, (all, attrs, body) => {
+						if (!/(?:CodeSnippet|hljs|language-|block)/i.test(attrs || '') && !/<br\s*\/?>|\n/.test(body || '')) {
+							return `<code style="padding:2px 4px;border-radius:4px;background:#f1f5f9;color:#334155;font-family:Consolas,Menlo,Monaco,monospace;font-size:0.92em;">${body}</code>`
+						}
+						return this.renderCodeBlock(this.extractCodeText(all), this.extractCodeLanguage(attrs))
+					})
+			},
+			normalizeMarkdownCodeFences(html) {
+				const stashed = []
+				const stashCode = all => {
+					const key = `\uE100${stashed.length}\uE101`
+					stashed.push(all)
+					return key
+				}
+				const source = String(html || '').replace(/<pre\b[\s\S]*?<\/pre>|<code\b[\s\S]*?<\/code>/ig, stashCode)
+				return source
+					.replace(/```([a-z0-9_+-]*)\s*(?:<br\s*\/?>|\n)([\s\S]*?)```/ig, (all, lang, body) => {
+						return this.renderCodeBlock(this.codeHtmlToText(body), lang)
+					})
+					.replace(/\[code(?:=([^\]]+))?\]([\s\S]*?)\[\/code\]/ig, (all, lang, body) => {
+						return this.renderCodeBlock(this.codeHtmlToText(body), lang)
+					})
+					.replace(/\uE100(\d+)\uE101/g, (all, index) => {
+						return stashed[Number(index)] || all
+					})
+			},
+			extractCodeLanguage(attrs) {
+				const match = String(attrs || '').match(/(?:language-|lang-)([a-z0-9_+-]+)/i)
+				return match ? match[1] : ''
+			},
+			extractCodeText(html) {
+				html = String(html || '').replace(/<button\b[\s\S]*?<\/button>/ig, '')
+				const codeMatch = html.match(/<code\b([^>]*)>([\s\S]*?)<\/code>/i)
+				return this.codeHtmlToText(codeMatch ? codeMatch[2] : html)
+			},
+			codeHtmlToText(html) {
+				return this.decodeHtmlText(String(html || '')
+						.replace(/<br\s*\/?>/ig, '\n')
+						.replace(/<\/(?:div|p|li|tr)>\s*<(?:div|p|li|tr)\b[^>]*>/ig, '\n')
+						.replace(/<\/(?:div|p|li|tr)>/ig, '\n')
+						.replace(/<[^>]+>/g, ''))
+					.replace(/\r\n/g, '\n')
+					.replace(/\r/g, '\n')
+					.replace(/\n{3,}/g, '\n\n')
+					.trim()
+			},
+			renderCodeBlock(codeText, lang) {
+				const title = lang ? `代码 · ${this.escapeHtml(String(lang).trim())}` : '代码'
+				const key = registerCodeBlock(codeText || '', this.codeCopyScope)
+				const href = buildCodeCopyUrl(key)
+				return `<div style="margin:12px 0;border:1px solid #e5e7eb;border-radius:6px;background:#f8fafc;overflow:hidden;"><div style="padding:6px 10px;background:#eef2f7;color:#64748b;font-size:12px;line-height:18px;display:flex;align-items:center;justify-content:space-between;"><span>${title}</span><a href="${this.escapeHtmlAttr(href)}" style="display:inline-block;padding:2px 8px;border-radius:4px;background:#07c160;color:#fff;text-decoration:none;font-size:12px;line-height:18px;">复制</a></div><pre data-yh-code="1" style="margin:0;padding:10px;overflow-x:auto;white-space:pre;word-break:normal;line-height:1.55;font-size:13px;font-family:Consolas,Menlo,Monaco,monospace;background:#f8fafc;color:#111827;"><code data-yh-code="1" style="white-space:pre;font-family:Consolas,Menlo,Monaco,monospace;">${this.escapeHtml(codeText || '')}</code></pre></div>`
 			},
 			normalizeImageBbcode(html) {
 				return String(html || '').replace(/\[img\]([\s\S]*?)\[\/img\]/ig, (all, rawUrl) => {
@@ -2561,6 +2899,25 @@
 					headText: headerText
 				}))
 			},
+			extractPostReadCount(html) {
+				const source = String(html || '')
+				const readBlocks = this.extractClassBlocksByToken(source, 'yueduliang')
+				for (let i = 0; i < readBlocks.length; i++) {
+					const match = this.cleanPostMetaText(this.stripHtml(readBlocks[i])).match(/阅\s*(\d+)/)
+					if (match) {
+						return match[1]
+					}
+				}
+				const postInfo = this.extractClassBlocksByToken(source, 'Postinfo')[0] || this.extractPostHeaderHtml(source)
+				const headerText = this.cleanPostMetaText(this.stripHtml(postInfo))
+				const headerRead = headerText.match(/[（(]\s*阅\s*(\d+)\s*[）)]/) || headerText.match(/阅\s*(\d+)/)
+				if (headerRead) {
+					return headerRead[1]
+				}
+				const browseMatch = headerText.match(/浏览(?:次数)?[^\d]{0,20}(\d+)/) ||
+					this.cleanPostMetaText(this.stripHtml(source)).match(/浏览(?:次数)?[^\d]{0,20}(\d+)/)
+				return browseMatch ? browseMatch[1] : ''
+			},
 			getPostInfoFromHtml(html) {
 				const titleMatch = String(html || '').match(/<title>(.*?)<\/title>/i)
 				if (!this.info.title && titleMatch) {
@@ -2572,8 +2929,8 @@
 					this.info.authorId = authorId
 					this.info.author = `楼主：${this.formatUserName(authorName, authorId)}`
 				}
-				const readMatch = String(html || '').match(/浏览(?:次数)?[^\d]*(\d+)/)
-				this.info.readCount = readMatch ? readMatch[1] : this.info.readCount || ''
+				const readCount = this.extractPostReadCount(html)
+				this.info.readCount = readCount || this.info.readCount || ''
 				this.info.time = this.extractPostTime(html) || this.info.time || ''
 				const rewardInfo = this.extractPostRewardInfo(html)
 				this.honorArr = this.extractHonorImages(this.extractPostAuthorMetaHtml(html))
@@ -2927,6 +3284,24 @@
 		background: #07c160;
 		color: #fff;
 		font-size: 13px;
+	}
+
+	.post-favorite-btn,
+	.post-edit-btn {
+		margin: 0;
+		height: 58rpx;
+		line-height: 58rpx;
+		padding: 0 24rpx;
+		color: #fff;
+		font-size: 13px;
+	}
+
+	.post-favorite-btn {
+		background: #1677ff;
+	}
+
+	.post-edit-btn {
+		background: #fa8c16;
 	}
 
 	.post-delete-btn {
